@@ -2,6 +2,7 @@ package httpapi_test
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"log/slog"
 	"os"
@@ -60,12 +61,11 @@ type world struct {
 	terminals terminal.Shells
 }
 
-// scriptedLab is the toolchain as the HTTP tests see it: a lab that is up and passes every probe, unless told
-// otherwise.
+// scriptedLab is the lab's state as the HTTP tests see it: up, with a cut link, unless stateErr. Its sandboxes are
+// the fake OpsForge's (w.opsforge: failProbes, refuse).
 type scriptedLab struct {
 	mu       sync.Mutex
 	stateErr error
-	failing  bool // probes fail
 }
 
 func (l *scriptedLab) State(context.Context) (lab.State, error) {
@@ -84,22 +84,17 @@ func (l *scriptedLab) State(context.Context) (lab.State, error) {
 		Placeholders: map[string]string{"${node:c}": "c-w1", "${public:a}": "203.0.113.10"}}, nil
 }
 
-func (l *scriptedLab) Run(context.Context, lab.RunRequest) (lab.RunResult, error) {
-	return lab.RunResult{Metrics: map[string]float64{}, Log: []string{}}, nil
-}
-
-func (l *scriptedLab) Probe(_ context.Context, req lab.ProbeRequest) (lab.ProbeResult, error) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	got := 0.0
-	if l.failing {
-		got = 1
+// failProbes makes the fake OpsForge's probes fail (nodes.exit got 1) or pass.
+func (w *world) failProbes(failing bool) {
+	w.opsforge.Probe = func(json.RawMessage) (any, error) {
+		got := 0.0
+		if failing {
+			got = 1
+		}
+		return map[string]any{"passed": !failing, "results": []map[string]any{{"metric": "nodes.exit", "want": "== 0",
+			"got": got, "passed": !failing, "checked": true}}, "log": []string{}, "error": nil}, nil
 	}
-	return lab.ProbeResult{Passed: !l.failing, Results: []lab.Expectation{{Metric: "nodes.exit", Want: "== 0",
-		Got: &got, Passed: !l.failing, Checked: true}}, Log: []string{}}, nil
 }
-
-func (l *scriptedLab) Heal(context.Context) (bool, error) { return false, nil }
 
 // quizLab is a lab with a quiz step (the golden pack has none), added to the world's catalogue.
 const quizLab = `{"id":"quiz-lab","title":"Quiz lab","xp":40,"files":{},"body":{"steps":[
@@ -167,7 +162,8 @@ func newWorld(t *testing.T) *world {
 	w.terminals, _ = shells(t, w.client)
 	w.spaces = workspace.NewService(w.client.Files(), workspacesqlite.NewRepo(store.DB), clock)
 	w.lab = &scriptedLab{}
-	w.labs = labsession.NewService(labsqlite.NewRepo(store.DB), w.catalog, w.lab, w.spaces, w.ops, w.history, clock)
+	w.labs = labsession.NewService(labsqlite.NewRepo(store.DB), w.catalog, w.client.Sandboxes(), w.spaces, w.ops,
+		w.history, clock)
 	t.Cleanup(func() { _ = w.ops.Wait(context.Background()) })
 	labs := progress.SourceFunc(func(ctx context.Context, user int64) ([]progress.Completion, error) {
 		passed, err := w.labs.Passed(ctx, user)

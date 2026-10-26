@@ -1,12 +1,13 @@
 package httpapi_test
 
 import (
-	"errors"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/IhebBelhadj/opsforge-academy/academy/internal/httpapi"
+	"github.com/IhebBelhadj/opsforge-academy/academy/internal/opsforgeapi/opsforgefake"
 )
 
 const (
@@ -49,7 +50,7 @@ func TestALabFromStartToPass(t *testing.T) {
 	s := openStream(t, b, "", nil)
 	started := startLab(t, w, b, "meet-the-cluster")
 	a := started.Attempt
-	if a.Status != "setup" || a.Namespace == nil || *a.Namespace != "lab-1" || a.Workspace != "lab-1" ||
+	if a.Status != "setup" || a.Namespace == nil || *a.Namespace != "sb-00000001" || a.Workspace != "00000001" ||
 		len(a.Steps) != 2 || *a.Course != "k8s-intro" || started.Operation.Kind != "lab.start" {
 		t.Fatalf("%+v", started)
 	}
@@ -66,7 +67,7 @@ func TestALabFromStartToPass(t *testing.T) {
 	if h := decode[httpapi.Hint](t, rec.Body.Bytes()); rec.Code != 200 || h.Hint != "Use kubectl get." || h.HintsUsed != 1 {
 		t.Fatalf("%d %s", rec.Code, rec.Body)
 	}
-	w.lab.failing = true
+	w.failProbes(true)
 	rec = post(t, b, attemptPath(a.Id, "/checks"), checkOp, `{"step":"nodes"}`)
 	if rec.Code != 202 {
 		t.Fatalf("%d %s", rec.Code, rec.Body)
@@ -75,7 +76,7 @@ func TestALabFromStartToPass(t *testing.T) {
 		len(out.Results) != 1 || *out.Results[0].Got != 1 {
 		t.Fatalf("failing check: %+v", out)
 	}
-	w.lab.failing = false
+	w.failProbes(false)
 	rec = post(t, b, attemptPath(a.Id, "/checks"), checkOp, `{"step":"nodes"}`)
 	finished(t, w, b, decode[httpapi.Operation](t, rec.Body.Bytes()).Id)
 	rec = post(t, b, attemptPath(a.Id, "/checks"), checkOp, `{"step":"apply"}`)
@@ -121,12 +122,28 @@ func TestLabStartRefusals(t *testing.T) {
 	if rec.Code != 404 {
 		t.Fatalf("%d %s", rec.Code, rec.Body)
 	}
-	w.lab.stateErr = errors.New("python missing")
+	for slug, want := range map[string]string{"lab-down": "/problems/lab-down", "lab-busy": "/problems/lab-busy",
+		"unmet-requirements": "/problems/lab-unavailable"} {
+		w.opsforge.Refuse = func(json.RawMessage) *opsforgefake.Refusal {
+			return &opsforgefake.Refusal{Slug: slug, Detail: "no", Unmet: []string{"ci (not in topology.yml)"}}
+		}
+		rec = post(t, b, "/api/v1/labs/meet-the-cluster/attempts", startOp, "")
+		p := decode[httpapi.Problem](t, rec.Body.Bytes())
+		if rec.Code != 409 || p.Type != want {
+			t.Fatalf("%s: %d %s", slug, rec.Code, rec.Body)
+		}
+		if slug == "unmet-requirements" && !strings.Contains(*p.Detail, "ci (not in topology.yml)") {
+			t.Fatalf("unmet: %s", rec.Body)
+		}
+	}
+	w.opsforge.Refuse = func(json.RawMessage) *opsforgefake.Refusal { // a problem Academy does not know
+		return &opsforgefake.Refusal{Slug: "internal", Detail: "KeyError: 'nodes'"}
+	}
 	rec = post(t, b, "/api/v1/labs/meet-the-cluster/attempts", startOp, "")
 	if rec.Code != 503 || decode[httpapi.Problem](t, rec.Body.Bytes()).Type != "/problems/toolchain" {
 		t.Fatalf("%d %s", rec.Code, rec.Body)
 	}
-	w.lab.stateErr = nil
+	w.opsforge.Refuse = nil
 	startLab(t, w, b, "meet-the-cluster")
 	rec = post(t, b, "/api/v1/labs/quiz-lab/attempts", startOp, "")
 	if rec.Code != 409 || decode[httpapi.Problem](t, rec.Body.Bytes()).Type != "/problems/another-lab-running" {

@@ -31,14 +31,14 @@ Red → green → refactor, with refactors only on green. Bugs start as a failin
 | Toolchain (Python) | pytest (existing 149 tests) + new tests for `opsforge api` commands | Compile (schema, cross-references, hashes, determinism), probe early stop, apply diagnostics; golden bundle fixture shared with the Go import tests | every commit |
 | Shared fixtures | `academy/contract/golden/` (pinned from OpsForge's repository, written by its pytest) | OpsForge's documents decode into Academy's types: contract drift fails at `make contract-update` | every commit |
 | Web components | Vitest, Testing Library, MSW (handlers generated from OpenAPI), `vitest-axe` | Each screen state; quiz navigator logic; editor workspace model (dirty, external change, save conflict) with Monaco mocked; terminal hook with a fake WebSocket | every commit |
-| End to end | Playwright against `academy serve --lab=fake` (fake `LabController`, seeded bundle), Chromium + Firefox, desktop and 390 px | Journeys: start a course → read → pass a quiz → pass a lab → accept a challenge → completion badge; keyboard-only run; reconnecting terminal | every PR |
+| End to end | Playwright against the built `academy serve` and `opsforge-fake` (OpsForge's API in memory: sandboxes, files, an echoing terminal; seeded packs), Chromium + Firefox, desktop and 390 px | Journeys: start a course → read → pass a quiz → pass a lab → accept a challenge → completion badge; keyboard-only run; reconnecting terminal | every PR |
 | Visual | Playwright screenshots of key screens, light and dark | Unintended layout changes | every PR (reviewed diffs) |
 | Live acceptance | the lab or challenge played in Academy against the running lab's API; a scripted run of a whole course | Lab texts, timings and checks are true on the real cluster; teardown leaves `verify` green | per lab/challenge before merge; full run per milestone |
 
 ## Fakes, not mocks
 
-- Ports are small interfaces declared where they are consumed, so fakes are a few lines: `fakeLabController` with
-  scripted responses and a call log, `fakeClock`, `seqIDs`, `memWorkspace`.
+- Ports are small interfaces declared where they are consumed, so fakes are a few lines: `fakeSandboxes` with
+  scripted responses and a call log, `fakeClock`, `seqIDs`, `memstore`.
 - No `gomock`/`mockery`: tests assert outcomes (state, events, returned errors), not call sequences, except where the
   call is the outcome (teardown must run after a failed setup: asserted through the fake's log).
 

@@ -118,11 +118,11 @@ time_limit: 120s                 # pods must be Ready within this after apply
 tests:                           # one entry = one "test case" on the Result tab
   - name: 3 replicas ready
     probe:
-      steps: [{ run: { cmd: "./opsforge kubectl -n ${ns} get deploy web -o jsonpath='{.status.readyReplicas}'" }, name: ready }]
+      steps: [{ run: { cmd: "opsforge kubectl -n ${ns} get deploy web -o jsonpath='{.status.readyReplicas}'" }, name: ready }]
       expect: { ready.value: "== 3" }
   - name: never fewer than 3 ready during a rollout
     action:                      # optional: done by the grader before the probe
-      - run: { cmd: "./opsforge kubectl -n ${ns} set env deploy/web ROLL=1" }
+      - run: { cmd: "opsforge kubectl -n ${ns} set env deploy/web ROLL=1" }
     probe:
       steps: [{ wait_until: { cmd: "...", timeout: 90s }, name: rollout }]
       expect: { rollout.ok: "== 1" }

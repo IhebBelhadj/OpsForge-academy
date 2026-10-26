@@ -40,7 +40,7 @@ export const fixtures = {
     description: "A **tiny** course.\n",
     outcomes: ["Read a pod's status", "Write a pod manifest"],
     requirements: ["Basic shell use"],
-    content_hash: "ad7ef344f4bcb582",
+    content_hash: "72236239ee5cafca",
     sections: [
       {
         title: "Pods",
@@ -61,9 +61,9 @@ export const fixtures = {
             type: "lab",
             title: "Meet the cluster",
             minutes: 10,
-            content_hash: "4a96800a992f8941",
+            content_hash: "80ddf88a45f08cbd",
           },
-          { id: "first-pod", type: "challenge", title: "First pod", minutes: 10, content_hash: "f8ca6f717436e90f" },
+          { id: "first-pod", type: "challenge", title: "First pod", minutes: 10, content_hash: "40ad70fc8ed45ba6" },
         ],
       },
     ],
@@ -100,7 +100,7 @@ export const fixtures = {
       title: "Meet the cluster",
       minutes: 10,
       section: 0,
-      content_hash: "4a96800a992f8941",
+      content_hash: "80ddf88a45f08cbd",
       lab: {
         id: "meet-the-cluster",
         summary: "List the nodes and find which site each one is in.",
@@ -140,7 +140,7 @@ export const fixtures = {
       title: "First pod",
       minutes: 10,
       section: 0,
-      content_hash: "f8ca6f717436e90f",
+      content_hash: "40ad70fc8ed45ba6",
       challenge: {
         difficulty: "easy",
         xp: 50,

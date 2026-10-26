@@ -15,7 +15,7 @@ import (
 type Repo interface {
 	// Create stores a new attempt and returns its id; ErrAnotherLabRunning if the user has an active one.
 	Create(ctx context.Context, a Attempt) (int64, error)
-	// SetPlaces records the attempt's namespace and workspace.
+	// SetPlaces records the attempt's namespace and workspace (its sandbox: the id names both).
 	SetPlaces(ctx context.Context, id int64, namespace, workspace string) error
 	// Attempt reads an attempt, or ErrAttemptNotFound.
 	Attempt(ctx context.Context, id int64) (Attempt, error)
@@ -43,17 +43,23 @@ type Catalog interface {
 	Entry(ctx context.Context, kind catalog.Kind, key string) (catalog.Entry, error)
 }
 
-// LabController runs things on the lab through OpsForge (opsforgeapi.Client).
-type LabController interface {
-	State(ctx context.Context) (lab.State, error)
-	Run(ctx context.Context, req lab.RunRequest) (lab.RunResult, error)
-	Probe(ctx context.Context, req lab.ProbeRequest) (lab.ProbeResult, error)
-	Heal(ctx context.Context) (bool, error)
+// Sandboxes are where attempts' lab work happens (opsforgeapi.Sandboxes): OpsForge makes one per attempt from the
+// lab's requirements and cleans it up. Refusals are the lab package's errors (lab.ErrLabDown, lab.ErrBusy,
+// *lab.UnmetError; lab.ErrGone for a sandbox it no longer has).
+type Sandboxes interface {
+	// Create starts making a sandbox: refused at once, else its id is known; Await waits for its setup.
+	Create(ctx context.Context, req lab.SandboxRequest) (lab.Pending, error)
+	Await(ctx context.Context, p lab.Pending) (lab.Sandbox, error)
+	Probe(ctx context.Context, id string, req lab.ProbeRequest) (lab.ProbeResult, error)
+	// Reset runs the teardown, then the setup again.
+	Reset(ctx context.Context, id string) (lab.Sandbox, error)
+	// Delete runs the teardown and removes the sandbox (healing the lab when it had faults).
+	Delete(ctx context.Context, id string) (lab.Sandbox, error)
 }
 
-// Workspaces creates an attempt's files (workspace.Service).
+// Workspaces records whose an attempt's workspace (its sandbox's) is (workspace.Service).
 type Workspaces interface {
-	Create(ctx context.Context, user int64, ws string, files map[string]string) error
+	Claim(ctx context.Context, user int64, ws string) error
 }
 
 // Operations runs the long part of a request in the background (operations.Service).

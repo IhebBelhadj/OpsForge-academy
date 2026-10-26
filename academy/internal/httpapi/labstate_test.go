@@ -52,7 +52,7 @@ func TestItemTextsAreResolvedForTheRunningLab(t *testing.T) {
 		t.Fatalf("before the attempt: %q", body)
 	}
 	startLab(t, w, b, "meet-the-cluster")
-	if body := lab().Steps[1].Body; body != "Apply `hello.yaml` in `lab-1`." {
+	if body := lab().Steps[1].Body; body != "Apply `hello.yaml` in `sb-00000001`." {
 		t.Fatalf("during the attempt: %q", body)
 	}
 

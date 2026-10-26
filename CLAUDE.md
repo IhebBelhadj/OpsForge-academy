@@ -8,10 +8,9 @@ its files; the two may run on different machines. Read `docs/README.md` and `doc
 structural changes (architecture, content model, milestones, tests first).
 
 **Now** (2026-10-26): moved out of OpsForge (its `docs/PLAN.md` Phase 11 holds the history up to here: M0, spike S6,
-M1, split steps 1-6). **Next:** split step 7, sandboxes: OpsForge serves a sandbox per lab/challenge attempt (sized
-by the course's requirements, cleaned up by OpsForge; design in `docs/architecture.md` "The OpsForge API"); Academy's
-`labsession`/`challenge` move onto one `Sandboxes` port. Then step 8, PostgreSQL in Docker, then M2 (player and
-parity). Tags: `v0.1.0` once Academy runs on OpsForge `v1.0.0`.
+M1, split steps 1-6) and **split step 7 done**: every lab attempt runs in an OpsForge sandbox (`labsession` on one
+`Sandboxes` port; the six core labs passed live through them). **Next:** tags (OpsForge `v1.0.0`, then this repo's
+`v0.1.0`), step 8 (PostgreSQL in Docker), then M2 (player and parity).
 
 ## Layout / index
 
@@ -40,9 +39,11 @@ parity). Tags: `v0.1.0` once Academy runs on OpsForge `v1.0.0`.
 
 - Teaching-lab content (Phase 10's packs, now Academy's): pack files are the source of truth, the database only
   mirrors them. A lab's content hash vs. the pass's hash = "updated since you passed it". Checks only observe
-  (`scenario.FAULT_STEPS` refused in probes by `api validate-steps`); faults go in a lab's `setup`, and finishing or
-  abandoning always runs `teardown` + `heal`. Probes run on the host from the repo root (`./opsforge ...`); lab texts
-  tell the learner `opsforge ...` (a function in the terminal's rcfile). Quiz answers never leave the server.
+  (`scenario.FAULT_STEPS` refused in probes by `api validate-steps`); faults go in a lab's `setup` (or the learner's
+  terminal), and finishing or abandoning always deletes the sandbox (OpsForge runs `teardown` + `heal`). Steps run
+  on the lab host in the sandbox's workspace with `opsforge` on the PATH: packs write `opsforge ...`, never
+  `./opsforge` (OpsForge's checkout is not there); lab texts tell the learner the same (a function in the terminal's
+  rcfile). Quiz answers never leave the server.
   New check/rule types: `compiler.checks`/`compiler.ruleTypes` (+ `rewards.Rules`, + labsession for a new check).
   A lab's teardown must leave `verify` green: anything that moves pods (a partition) must re-spread them (losing-a-site
   rolls every spread Deployment outside kube-system). Spread workloads need `matchLabelKeys: [pod-template-hash]`
@@ -61,12 +62,18 @@ parity). Tags: `v0.1.0` once Academy runs on OpsForge `v1.0.0`.
   outputs against the closed schema). `api version` = `{contract, minor, opsforge}` (`VERSION` in `opsforge`).
   `validate-steps` (OpsForge's `contract.step_errors`) is how the course compiler checks scenario steps: one call with every set.
   Labs without `files` keep Phase 10's content hash (passes stay fresh).
-  `run`/`probe`/`heal` (`lab_run`, `lab_probe`) are jobs over HTTP (the adapter polls `?wait=`; a lost job is
-  `ErrJobLost`), their input checked against `contract/toolchain.schema.json` (the Go adapter checks the outputs); a
-  failing step is the result's `error`, a bad call a problem. A `namespace` must be `lab-*`/`ch-*` (setup creates it on every cluster, labelled
-  `app.kubernetes.io/managed-by=opsforge-api`; teardown always deletes it). The documents are Go types in the pure
-  package `internal/lab`, so module ports and the adapter share them; lab jobs use `LabTimeout` (20 min), other calls
-  `OpsForgeTimeout`. Golden: `run.golden`, `probe.{passed,failed}`, `heal`, `job` (timings zeroed).
+  Lab work happens in **sandboxes** (split step 7, `opsforgeapi.Sandboxes`, labsession's `Sandboxes` port): one per
+  attempt, `Create` (refusals at once: `lab.ErrLabDown`, `lab.ErrBusy`, `*lab.UnmetError`, mapped to labsession's
+  `ErrLabDown`/`ErrBusy`/`ErrUnavailable`) then `Await` (the setup's job: `ready`, or `failed` and already cleaned up),
+  `Probe`, `Reset`, `Delete` (`lab.ErrGone` once deleted or expired). Every lab's sandbox requires `faults` (the
+  terminal can break links, so OpsForge heals on delete; it then runs alone), plus the lab's `layout`, `needs`,
+  `cluster_changes`, `namespace: auto` (→ `sb-<id>`, `${ns}`) and `files`. The attempt's `workspace` column holds the
+  sandbox id (it names the files too; renamed `sandbox` in step 8's baseline); `workspace.Service.Claim` records its
+  owner. Jobs over HTTP: the adapter polls `?wait=` (a lost job is `ErrJobLost`), checks inputs and outputs against
+  `contract/toolchain.schema.json`; a failing step is the result's `error`, a bad call a problem. Orphan sandboxes
+  (an attempt Academy lost) expire at OpsForge (a day idle). The documents are Go types in the pure package
+  `internal/lab`, so module ports and the adapter share them; lab jobs use `LabTimeout` (20 min), other calls
+  `OpsForgeTimeout`. Golden: `sandbox`, `probe.{passed,failed}`, `job`, `state.*`, `validate-steps`.
 - Academy config (split step 5): `--data` (default `$XDG_DATA_HOME/opsforge-academy`: `academy.db`, `opsforge-token`,
   a copy of OpsForge's `.opsforge/api-token` read at every call, so a missing one is a readyz problem, not a start
   failure), `--content` (packs, default `./labs`), `--opsforge-url` (default `http://127.0.0.1:8091`; plain http only to
@@ -114,8 +121,9 @@ parity). Tags: `v0.1.0` once Academy runs on OpsForge `v1.0.0`.
   the newest socket takes a session over. Wire format = Phase 10's (binary out; `{t:"i",d}` / `{t:"r",cols,rows}` in);
   close codes 1000 exited, 4000 replaced, 4001 slow, 1001 shutdown (`httpapi.StatusReplaced/StatusSlow`). Every
   request passes `hostGuard` (loopback names only, 421 otherwise) and the WebSocket upgrade checks Origin. A session's
-  shell is a WebSocket to OpsForge's `/v1/terminal` (`opsforgeapi.Shells`), bash on the lab host in the attempt's
-  workspace; closing it hangs the shell up. Shells are hung up through `RegisterOnShutdown` (hijacked sockets are not
+  shell is a WebSocket to its sandbox's terminal (`/v1/sandboxes/{id}/terminal`, `opsforgeapi.Shells`), bash on the
+  lab host in the attempt's workspace, `opsforge kubectl` defaulting to its namespace; a terminal needs a workspace
+  (`POST /api/v1/terminals` requires it); closing it hangs the shell up, and deleting the sandbox does too. Shells are hung up through `RegisterOnShutdown` (hijacked sockets are not
   waited for by `Shutdown`). Leftover shells on the lab host: `pgrep -f api-bashrc` (the pattern matches the checking
   shell itself).
 - Academy web look (2026-10-25, Udemy/LeetCode family): tokens in `web/src/styles/app.css` keep Phase 10's names with
@@ -154,11 +162,12 @@ parity). Tags: `v0.1.0` once Academy runs on OpsForge `v1.0.0`.
   `done` with the outcome even when a setup failed, `failed` only for internal errors); labsession holds one busy lock
   (TryLock, refused not queued) from the request until its background work ends, and hands it over explicitly.
   Restart: `ops.Recover` fails running operations, `labs.Recover` makes setup attempts running (abandonable);
-  shutdown closes the hub (SSE streams) and waits for operations within the grace. Workspaces: on the lab host
-  (OpsForge's `/v1/workspaces/<lab-N>`, `opsforgeapi.Files`; the learner also edits them in the terminal), 1 MiB/file,
-  10 MiB/tree, saves against `base_sha256` (Academy's); the terminal starts there. Guard 401/403 contract coverage is generic
+  shutdown closes the hub (SSE streams) and waits for operations within the grace. Workspaces: the sandbox's, on the
+  lab host (OpsForge's `/v1/sandboxes/<id>/files`, `opsforgeapi.Files`; made with the lab's files, gone with the
+  sandbox; the learner also edits them in the terminal), 1 MiB/file, 10 MiB/tree, saves against `base_sha256`
+  (Academy's); the terminal starts there. Guard 401/403 contract coverage is generic
   (`guard_test.go` walks the spec); httpapi tests share one database through `newWorld(t)` (golden catalogue + a
-  quiz lab, scripted lab controller). Lab XP = `labsession.PassXP` (half-to-even, as Phase 10's `pass_xp`).
+  quiz lab, labsession through the adapter on the fake OpsForge: `w.failProbes`, `w.opsforge.Refuse`). Lab XP = `labsession.PassXP` (half-to-even, as Phase 10's `pass_xp`).
 - Academy rewards/labstate/legacy (end of M1): `rewards` stores only awards (`user_badges`); XP is read (best pass per
   lab + best quiz attempt per item) through `rewards.Sources` (cmd/academy adapts labsession, quiz, progress,
   identity). Rule types = `rewards.Rules` ↔ `compiler.ruleTypes` (keep both); a course's `badge` is awarded on

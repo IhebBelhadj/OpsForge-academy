@@ -42,7 +42,15 @@ func newService(t *testing.T) (*workspace.Service, *memstore.Store) {
 	t.Helper()
 	files := memstore.New()
 	svc := workspace.NewService(files, &owners{m: map[string]int64{}}, clock{})
-	if err := svc.Create(context.Background(), 1, "lab-1", map[string]string{"web.yaml": "kind: Pod\n"}); err != nil {
+	ctx := context.Background()
+	// OpsForge makes a sandbox's workspace with its first files; Academy claims it for the attempt's user
+	if err := files.Create(ctx, "lab-1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := files.Write(ctx, "lab-1", "web.yaml", []byte("kind: Pod\n")); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Claim(ctx, 1, "lab-1"); err != nil {
 		t.Fatal(err)
 	}
 	return svc, files
@@ -62,7 +70,7 @@ func TestCleanPath(t *testing.T) {
 	}
 }
 
-func TestCreateSeedsTheFiles(t *testing.T) {
+func TestAClaimedWorkspaceIsItsUsers(t *testing.T) {
 	svc, _ := newService(t)
 	ctx := context.Background()
 	tree, err := svc.Tree(ctx, 1, "lab-1")
@@ -72,15 +80,8 @@ func TestCreateSeedsTheFiles(t *testing.T) {
 	if dir, err := svc.Workdir(ctx, 1, "lab-1"); err != nil || dir != "lab-1" {
 		t.Fatalf("%q %v", dir, err)
 	}
-	for name, err := range map[string]error{
-		"twice":    svc.Create(ctx, 1, "lab-1", nil),
-		"bad id":   svc.Create(ctx, 1, "../x", nil),
-		"bad file": svc.Create(ctx, 1, "lab-2", map[string]string{"../x": ""}),
-		"too big":  svc.Create(ctx, 1, "lab-3", map[string]string{"x": strings.Repeat("x", workspace.MaxFile+1)}),
-	} {
-		if err == nil {
-			t.Errorf("%s: accepted", name)
-		}
+	if err := svc.Claim(ctx, 1, "../x"); !errors.Is(err, workspace.ErrBadPath) {
+		t.Fatalf("bad id: %v", err)
 	}
 }
 

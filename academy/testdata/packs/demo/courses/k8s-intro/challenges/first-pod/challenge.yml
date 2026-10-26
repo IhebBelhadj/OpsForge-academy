@@ -11,7 +11,7 @@ tests:
   - name: pod is ready
     probe:
       steps:
-        - run: { cmd: "./opsforge kubectl -n ${ns} get pod web -o jsonpath='{.status.phase}'" }
+        - run: { cmd: "opsforge kubectl -n ${ns} get pod web -o jsonpath='{.status.phase}'" }
           name: phase
       expect: { phase.exit: "== 0" }
 hints: [The kind is Pod.]

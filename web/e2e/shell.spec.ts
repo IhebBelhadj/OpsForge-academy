@@ -49,8 +49,9 @@ test("the API needs a session, opened by POST /api/v1/sessions", async ({ reques
   expect(me.status()).toBe(200);
   expect(await me.json()).toMatchObject({ user: { name: "learner" }, csrf });
 
-  expect((await request.post("/api/v1/terminals")).status()).toBe(403);
-  expect((await request.post("/api/v1/terminals", { headers: { "X-CSRF-Token": csrf } })).status()).toBe(201);
+  expect((await request.post("/api/v1/terminals", { data: {} })).status()).toBe(403);
+  // With the token the guard lets it through; a terminal then needs a lab attempt's workspace
+  expect((await request.post("/api/v1/terminals", { data: {}, headers: { "X-CSRF-Token": csrf } })).status()).toBe(400);
 });
 
 test("the API answers problems for unknown resources", async ({ request }) => {

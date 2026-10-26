@@ -47,7 +47,7 @@ steps:
     check:
       probe:
         steps:
-          - run: { cmd: "./opsforge link a-c | grep -q 'rtt=200ms'" }
+          - run: { cmd: "opsforge link a-c | grep -q 'rtt=200ms'" }
             name: link
           - ping: { from: "${node:a}", to: "${public:c}", count: 10 }
             name: ping
@@ -68,6 +68,6 @@ steps:
           Three round trips of 200 ms each. This is why services keep connections open, terminate TLS close to the
           user, and put read replicas in every region: no amount of bandwidth removes a round trip.
 teardown:
-  - run: { cmd: ./opsforge link a-c --reset }
+  - run: { cmd: opsforge link a-c --reset }
 debrief: |
   Latency is set by distance, not by bandwidth. Count round trips when you design anything that crosses regions.

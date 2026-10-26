@@ -239,7 +239,7 @@ func provideWorkspaces(opsforge *opsforgeapi.Client, store *sqlite.Store, clock 
 
 func provideLabs(store *sqlite.Store, courses *catalog.Service, opsforge *opsforgeapi.Client,
 	spaces *workspace.Service, ops *operations.Service, events *history.Service, clock platform.Clock) *labsession.Service {
-	return labsession.NewService(labsqlite.NewRepo(store.DB), courses, opsforge, spaces, ops, events, clock)
+	return labsession.NewService(labsqlite.NewRepo(store.DB), courses, opsforge.Sandboxes(), spaces, ops, events, clock)
 }
 
 func provideQuizzes(store *sqlite.Store, courses *catalog.Service, events *history.Service,

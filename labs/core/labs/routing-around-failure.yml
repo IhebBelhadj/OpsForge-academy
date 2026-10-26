@@ -38,7 +38,7 @@ steps:
     check:
       probe:
         steps:
-          - run: { cmd: "./opsforge link a-c | grep -q 'loss=100%'" }
+          - run: { cmd: "opsforge link a-c | grep -q 'loss=100%'" }
             name: link
           - wait_until: { host: a-gw, cmd: "ip route get ${ip:${node:c}} | grep -q wg-b", timeout: 60s }
             name: rerouted

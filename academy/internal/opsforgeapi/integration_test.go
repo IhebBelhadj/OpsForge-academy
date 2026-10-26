@@ -56,33 +56,57 @@ func TestRealOpsForge(t *testing.T) {
 		t.Fatalf("steps %+v %v", errs, err)
 	}
 
-	res, err := c.Run(ctx, lab.RunRequest{Phase: lab.Setup, Steps: []json.RawMessage{echo("x", 7)}})
-	if err != nil || res.Error != "" || res.Metrics["x.value"] != 7 || len(res.Log) == 0 {
-		t.Fatalf("run %+v %v", res, err)
+	sandboxes := c.Sandboxes()
+	sb := liveSandbox(t, c, lab.SandboxRequest{Kind: "lab", Label: "academy integration test",
+		Setup: []json.RawMessage{echo("x", 7)}})
+	if sb.Status != lab.SandboxReady || sb.Setup.Error != "" || sb.Setup.Metrics["x.value"] != 7 || len(sb.Setup.Log) == 0 {
+		t.Fatalf("setup %+v", sb.Setup)
 	}
-	probe, err := c.Probe(ctx, lab.ProbeRequest{Steps: []json.RawMessage{echo("a", 1), echo("b", 2)},
+	probe, err := sandboxes.Probe(ctx, sb.ID, lab.ProbeRequest{Steps: []json.RawMessage{echo("a", 1), echo("b", 2)},
 		Expect: json.RawMessage(`{"a.value": "== 0", "b.value": "== 2"}`)})
 	if err != nil || probe.Passed || len(probe.Results) != 2 || probe.Results[1].Checked {
 		t.Fatalf("probe stops at the first failing named step: %+v %v", probe, err)
 	}
 	var p *opsforgeapi.Problem
-	if _, err := c.Run(ctx, lab.RunRequest{Phase: lab.Setup, Namespace: "kube-system"}); !errors.As(err, &p) ||
-		p.Status != 400 || p.Slug() != "bad-input" {
-		t.Fatalf("a namespace the platform does not own: %v", err)
+	if _, err := sandboxes.Probe(ctx, sb.ID, lab.ProbeRequest{Steps: []json.RawMessage{json.RawMessage(`{"partition":"c"}`)},
+		Expect: json.RawMessage(`{"x.value": "== 1"}`)}); !errors.As(err, &p) || p.Status != 400 || p.Slug() != "bad-input" {
+		t.Fatalf("a probe that would break links: %v", err)
 	}
+	if gone, err := sandboxes.Delete(ctx, sb.ID); err != nil || gone.Status != lab.SandboxDeleted {
+		t.Fatalf("delete %+v %v", gone, err)
+	}
+	if _, err := sandboxes.Delete(ctx, sb.ID); !errors.Is(err, lab.ErrGone) {
+		t.Fatalf("deleted twice: %v", err)
+	}
+}
+
+// liveSandbox makes a sandbox on the real OpsForge and awaits it; skips the test when the lab is down (OpsForge
+// makes sandboxes only on a running lab: CI's has none) after checking that refusal. Deleted at the end.
+func liveSandbox(t *testing.T, c *opsforgeapi.Client, req lab.SandboxRequest) lab.Sandbox {
+	t.Helper()
+	ctx := context.Background()
+	pending, err := c.Sandboxes().Create(ctx, req)
+	if errors.Is(err, lab.ErrLabDown) {
+		t.Skipf("the lab is down (sandboxes need it): %v", err)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _, _ = c.Sandboxes().Delete(context.Background(), pending.Sandbox) })
+	sb, err := c.Sandboxes().Await(ctx, pending)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return sb
 }
 
 func TestRealWorkspaceAndShell(t *testing.T) {
 	c := real(t)
 	ctx := context.Background()
 	files := c.Files()
-	ws := "lab-it-" + time.Now().Format("150405")
-	if err := files.Create(ctx, ws); err != nil {
-		t.Fatal(err)
-	}
-	if err := files.Write(ctx, ws, "k8s/hello.yaml", []byte("kind: ConfigMap\n")); err != nil {
-		t.Fatal(err)
-	}
+	sb := liveSandbox(t, c, lab.SandboxRequest{Kind: "lab", Label: "academy integration test (shell)", Namespace: true,
+		Files: map[string]string{"k8s/hello.yaml": "kind: ConfigMap\n"}})
+	ws := sb.ID
 	for _, bad := range []string{"../escape", "a//b"} {
 		if err := files.Write(ctx, ws, bad, []byte("x")); !errors.Is(err, workspace.ErrBadPath) {
 			t.Errorf("%s: %v", bad, err)
@@ -98,9 +122,10 @@ func TestRealWorkspaceAndShell(t *testing.T) {
 	readUntil(t, shell, "Lab terminal in")
 	_, _ = shell.Write([]byte("\x1b[200~echo parity-$((6*7))\x1b[201~\r"))
 	readUntil(t, shell, "parity-42")
-	_, _ = shell.Write([]byte("stty size; cat k8s/hello.yaml; type opsforge | head -1\r"))
+	_, _ = shell.Write([]byte("stty size; cat k8s/hello.yaml; echo ns=$OPSFORGE_NAMESPACE; type opsforge | head -1\r"))
 	out := readUntil(t, shell, "opsforge is a function")
-	if !strings.Contains(out, "30 100") || !strings.Contains(out, "kind: ConfigMap") {
+	if !strings.Contains(out, "30 100") || !strings.Contains(out, "kind: ConfigMap") ||
+		!strings.Contains(out, "ns="+*sb.Namespace) {
 		t.Fatalf("shell: %q", out)
 	}
 	if err := shell.Resize(120, 40); err != nil {
@@ -117,5 +142,11 @@ func TestRealWorkspaceAndShell(t *testing.T) {
 	}
 	if got, err := files.Read(ctx, ws, "new.txt"); err != nil || string(got) != "made-here\n" {
 		t.Fatalf("a file made in the terminal: %q %v", got, err)
+	}
+	if _, err := c.Sandboxes().Delete(ctx, ws); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := files.List(ctx, ws); !errors.Is(err, workspace.ErrNotFound) {
+		t.Fatalf("the files go with the sandbox: %v", err)
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/IhebBelhadj/opsforge-academy/academy/internal/lab"
 	"github.com/IhebBelhadj/opsforge-academy/academy/internal/labsession"
 	"github.com/IhebBelhadj/opsforge-academy/academy/internal/operations"
 )
@@ -30,6 +31,7 @@ type Operations interface {
 // labProblem maps a labsession error to its problem document (status 0: not a domain error).
 func labProblem(err error) Problem {
 	var locked *labsession.LockedError
+	var unmet *lab.UnmetError
 	switch {
 	case errors.Is(err, labsession.ErrLabNotFound):
 		return problem(http.StatusNotFound, "/problems/not-found", "Not found", "no such lab")
@@ -48,9 +50,9 @@ func labProblem(err error) Problem {
 			"pass these labs first: "+strings.Join(locked.Missing, ", "))
 	case errors.Is(err, labsession.ErrLabDown):
 		return problem(http.StatusConflict, "/problems/lab-down", "The lab is down", "start it with ./opsforge up")
-	case errors.Is(err, labsession.ErrUnavailable):
-		return problem(http.StatusConflict, "/problems/lab-unavailable", "Not on this layout",
-			"this lab needs another lab layout (OPSFORGE_TOPOLOGY)")
+	case errors.As(err, &unmet):
+		return problem(http.StatusConflict, "/problems/lab-unavailable", "Not on this lab",
+			"the running lab cannot host this lab: "+strings.Join(unmet.Unmet, "; "))
 	case errors.Is(err, labsession.ErrNotRunning):
 		return problem(http.StatusConflict, "/problems/attempt-not-running", "The attempt is not running",
 			"it is still setting up, or it has ended")

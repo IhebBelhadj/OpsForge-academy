@@ -3,6 +3,8 @@ package labsession_test
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,23 +14,30 @@ import (
 
 func ptr[T any](v T) *T { return &v }
 
-func TestStartRunsTheSetupInItsNamespace(t *testing.T) {
+func TestStartMakesTheAttemptsSandbox(t *testing.T) {
 	f := newFixture()
 	a, out := f.start(t, "tour")
-	if a.Status != labsession.Setup || a.Namespace != "lab-1" || a.Workspace != "lab-1" || a.Hash != "H-tour" ||
-		a.Course != "k8s" || a.Item != "item" {
+	if a.Status != labsession.Setup || a.Workspace != "00000001" || a.Namespace != "sb-00000001" ||
+		a.Hash != "H-tour" || a.Course != "k8s" || a.Item != "item" {
 		t.Fatalf("started %+v", a)
 	}
 	if out.Status != labsession.Running || out.Error != nil || out.Attempt != 1 {
 		t.Fatalf("outcome %+v", out)
 	}
-	if f.lab.called() != "setup 1 lab-1" {
+	if f.lab.called() != "create 00000001, await 00000001" {
 		t.Fatalf("calls: %s", f.lab.called())
 	}
-	if f.spaces.created["lab-1"]["web.yaml"] != "kind: Pod\n" {
-		t.Fatalf("workspace %+v", f.spaces.created)
+	req := f.lab.requests["00000001"]
+	if req.Kind != "lab" || req.Label != "lab tour (user 1)" || !req.Namespace || *req.Requires.Layout != "stretched" ||
+		len(req.Requires.Needs) != 1 || !req.Requires.Faults || req.Requires.ClusterChanges ||
+		req.Files["web.yaml"] != "kind: Pod\n" || len(req.Setup) != 1 || len(req.Teardown) != 1 {
+		t.Fatalf("request %+v", req)
 	}
-	if stored, _ := f.repo.Attempt(context.Background(), 1); stored.Status != labsession.Running {
+	if f.spaces.claimed["00000001"] != 1 {
+		t.Fatalf("workspace %+v", f.spaces.claimed)
+	}
+	if stored, _ := f.repo.Attempt(context.Background(), 1); stored.Status != labsession.Running ||
+		stored.Workspace != "00000001" {
 		t.Fatalf("stored %+v", stored)
 	}
 	if f.bus.kinds() != "lab.started" {
@@ -36,11 +45,21 @@ func TestStartRunsTheSetupInItsNamespace(t *testing.T) {
 	}
 }
 
-func TestALabWithoutSetupOrNamespaceCallsNothing(t *testing.T) {
+func TestALabWithoutStepsGetsASandboxToo(t *testing.T) {
 	f := newFixture()
-	_, out := f.start(t, "plain")
-	if out.Status != labsession.Running || f.lab.called() != "" {
+	a, out := f.start(t, "plain")
+	if out.Status != labsession.Running || a.Namespace != "" || f.lab.called() != "create 00000001, await 00000001" {
 		t.Fatalf("%+v, calls %s", out, f.lab.called())
+	}
+}
+
+// The learner's terminal can break links in any lab: every lab's sandbox requires faults (OpsForge heals when
+// deleting it); a lab that changes the cluster says so too.
+func TestALabsSandboxMayBreakLinks(t *testing.T) {
+	f := newFixture()
+	f.start(t, "storm")
+	if req := f.lab.requests["00000001"]; !req.Requires.Faults || !req.Requires.ClusterChanges || req.Namespace {
+		t.Fatalf("request %+v", req)
 	}
 }
 
@@ -51,14 +70,14 @@ func TestStartRefusals(t *testing.T) {
 		setup func(*fixture)
 		want  error
 	}{
-		"unknown lab":   {"nope", nil, labsession.ErrLabNotFound},
-		"locked":        {"next", nil, labsession.ErrLocked},
-		"other layout":  {"far", nil, labsession.ErrUnavailable},
-		"lab down":      {"tour", func(f *fixture) { f.lab.state.Up = false }, labsession.ErrLabDown},
-		"no toolchain":  {"tour", func(f *fixture) { f.lab.stateErr = errors.New("python?") }, labsession.ErrToolchain},
-		"another lab":   {"tour", func(f *fixture) { f.start(t, "plain") }, labsession.ErrAnotherLabRunning},
-		"no workspace":  {"tour", func(f *fixture) { f.spaces.err = errors.New("disk full") }, errAny},
-		"unknown state": {"far", func(f *fixture) { f.lab.state.Layout = nil }, labsession.ErrUnavailable},
+		"unknown lab":  {"nope", nil, labsession.ErrLabNotFound},
+		"locked":       {"next", nil, labsession.ErrLocked},
+		"unmet":        {"far", nil, labsession.ErrUnavailable},
+		"lab down":     {"tour", func(f *fixture) { f.lab.refuse = fmt.Errorf("%w: up it", lab.ErrLabDown) }, labsession.ErrLabDown},
+		"lab busy":     {"tour", func(f *fixture) { f.lab.refuse = fmt.Errorf("%w: a job runs", lab.ErrBusy) }, labsession.ErrBusy},
+		"no opsforge":  {"tour", func(f *fixture) { f.lab.refuse = errors.New("connection refused") }, labsession.ErrToolchain},
+		"another lab":  {"tour", func(f *fixture) { f.start(t, "plain") }, labsession.ErrAnotherLabRunning},
+		"no workspace": {"tour", func(f *fixture) { f.spaces.err = errors.New("disk full") }, errAny},
 	} {
 		t.Run(name, func(t *testing.T) {
 			f := newFixture()
@@ -78,7 +97,7 @@ func TestStartRefusals(t *testing.T) {
 				t.Fatal("an attempt is still active")
 			}
 			if name != "another lab" {
-				f.lab.state.Up, f.lab.stateErr, f.spaces.err = true, nil, nil
+				f.lab.refuse, f.spaces.err = nil, nil
 				if _, _, err := f.svc.Start(ctx, 1, "plain", "", ""); err != nil {
 					t.Fatalf("the lab stayed reserved: %v", err)
 				}
@@ -90,19 +109,39 @@ func TestStartRefusals(t *testing.T) {
 	if !errors.As(err, &locked) || len(locked.Missing) != 1 || locked.Missing[0] != "tour" {
 		t.Fatalf("%v", err)
 	}
+	var unmet *lab.UnmetError
+	if _, _, err := newFixture().svc.Start(ctx, 1, "far", "", ""); !errors.As(err, &unmet) ||
+		unmet.Unmet[0] != "layout multi-cluster" {
+		t.Fatalf("unmet: %v", err)
+	}
+}
+
+func TestASandboxMadeForNothingIsDeleted(t *testing.T) {
+	f := newFixture()
+	f.spaces.err = errors.New("disk full")
+	if _, _, err := f.svc.Start(context.Background(), 1, "plain", "", ""); err == nil {
+		t.Fatal("started")
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for !strings.Contains(f.lab.called(), "delete 00000001") {
+		if time.Now().After(deadline) {
+			t.Fatalf("calls: %s", f.lab.called())
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 }
 
 // errAny marks a case that only needs to fail (no sentinel to match).
 var errAny = errors.New("any error")
 
-func TestAFailedSetupIsTornDownAndFailsTheAttempt(t *testing.T) {
+func TestAFailedSetupFailsTheAttempt(t *testing.T) {
 	f := newFixture()
-	f.lab.failRun[lab.Setup] = "step 1 failed: exit 1"
+	f.lab.failSetup = "step 1 failed: exit 1"
 	_, out := f.start(t, "tour")
 	if out.Status != labsession.Failed || out.Error == nil || *out.Error != "step 1 failed: exit 1" {
 		t.Fatalf("%+v", out)
 	}
-	if f.lab.called() != "setup 1 lab-1, teardown 1 lab-1, heal" {
+	if f.lab.called() != "create 00000001, await 00000001" { // OpsForge cleaned the sandbox up
 		t.Fatalf("calls: %s", f.lab.called())
 	}
 	if f.bus.kinds() != "lab.started lab.failed" {
@@ -112,9 +151,14 @@ func TestAFailedSetupIsTornDownAndFailsTheAttempt(t *testing.T) {
 	if a.Status != labsession.Failed || a.FinishedAt == nil || a.Error == "" {
 		t.Fatalf("%+v", a)
 	}
-	f.lab.failRun = map[lab.Phase]string{}
+	f.lab.failSetup = ""
 	if _, out := f.start(t, "tour"); out.Status != labsession.Running {
 		t.Fatalf("starting again: %+v", out)
+	}
+	g := newFixture()
+	g.lab.awaitErr = errors.New("opsforge create job x: opsforge lost the job")
+	if _, out := g.start(t, "tour"); out.Status != labsession.Failed || !strings.Contains(*out.Error, "lost the job") {
+		t.Fatalf("lost setup: %+v", out)
 	}
 }
 
@@ -152,7 +196,7 @@ func TestStepsAreCheckedInOrderUntilThePass(t *testing.T) {
 	if out.Status != labsession.Passed || *out.XP != 100 || *out.Seconds != 90 || out.Error != nil {
 		t.Fatalf("pass: %+v", out)
 	}
-	if f.lab.called() != "setup 1 lab-1, probe lab-1, probe lab-1, teardown 1 lab-1, heal" {
+	if f.lab.called() != "create 00000001, await 00000001, probe 00000001, probe 00000001, delete 00000001" {
 		t.Fatalf("calls: %s", f.lab.called())
 	}
 	if f.bus.kinds() != "lab.started step.checked step.checked step.checked step.checked step.checked lab.passed" {
@@ -171,11 +215,15 @@ func TestStepsAreCheckedInOrderUntilThePass(t *testing.T) {
 	}
 }
 
-func TestAProbeTheToolchainCannotRunFailsTheCheck(t *testing.T) {
+func TestAProbeOpsForgeCannotRunFailsTheCheck(t *testing.T) {
 	f := newFixture()
 	a, _ := f.start(t, "tour")
-	f.lab.probeErr = errors.New("toolchain probe: contract 2")
-	if out := f.check(t, a.ID, "look", nil); *out.Passed || *out.Error != "toolchain probe: contract 2" {
+	f.lab.probeErr = errors.New("opsforge probe: contract 2")
+	if out := f.check(t, a.ID, "look", nil); *out.Passed || *out.Error != "opsforge probe: contract 2" {
+		t.Fatalf("%+v", out)
+	}
+	f.lab.gone["00000001"] = true // expired
+	if out := f.check(t, a.ID, "look", nil); *out.Passed || !strings.Contains(*out.Error, "sandbox is gone") {
 		t.Fatalf("%+v", out)
 	}
 }
@@ -223,11 +271,16 @@ func TestResetStartsTheStepsOver(t *testing.T) {
 	if out := f.outcome(t, op); out.Status != labsession.Running || out.Error != nil {
 		t.Fatalf("%+v", out)
 	}
-	if f.lab.called() != "setup 1 lab-1, probe lab-1, teardown 1 lab-1, heal, setup 1 lab-1" {
+	if f.lab.called() != "create 00000001, await 00000001, probe 00000001, reset 00000001" {
 		t.Fatalf("calls: %s", f.lab.called())
 	}
 	if v, _ := f.svc.View(ctx, 1, a.ID); v.Current != "look" || v.Steps[0].Passed {
 		t.Fatalf("%+v", v)
+	}
+	f.lab.failSetup = "setup failed again"
+	op, _ = f.svc.Reset(ctx, 1, a.ID)
+	if out := f.outcome(t, op); out.Status != labsession.Failed || *out.Error != "setup failed again" {
+		t.Fatalf("failed reset: %+v", out)
 	}
 
 	g := newFixture()
@@ -237,11 +290,11 @@ func TestResetStartsTheStepsOver(t *testing.T) {
 	}
 }
 
-func TestAbandonTearsDownAndEndsTheAttempt(t *testing.T) {
+func TestAbandonDeletesTheSandboxAndEndsTheAttempt(t *testing.T) {
 	f := newFixture()
 	ctx := context.Background()
 	a, _ := f.start(t, "tour")
-	f.lab.healErr = errors.New("wan-core unreachable")
+	f.lab.teardown = "heal: wan-core unreachable"
 	op, err := f.svc.Abandon(ctx, 1, a.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -250,7 +303,7 @@ func TestAbandonTearsDownAndEndsTheAttempt(t *testing.T) {
 	if out.Status != labsession.Abandoned || out.Error == nil || *out.Error != "heal: wan-core unreachable" {
 		t.Fatalf("%+v", out)
 	}
-	if f.lab.called() != "setup 1 lab-1, teardown 1 lab-1, heal" {
+	if f.lab.called() != "create 00000001, await 00000001, delete 00000001" {
 		t.Fatalf("calls: %s", f.lab.called())
 	}
 	if _, err := f.svc.Abandon(ctx, 1, a.ID); !errors.Is(err, labsession.ErrNotRunning) {
@@ -290,19 +343,19 @@ func TestAttemptsAreTheirUsers(t *testing.T) {
 
 // slowLab blocks probes until released, to hold the lab busy.
 type slowLab struct {
-	*fakeLab
+	*fakeSandboxes
 	release chan struct{}
 }
 
-func (l slowLab) Probe(ctx context.Context, req lab.ProbeRequest) (lab.ProbeResult, error) {
+func (l slowLab) Probe(ctx context.Context, id string, req lab.ProbeRequest) (lab.ProbeResult, error) {
 	<-l.release
-	return l.fakeLab.Probe(ctx, req)
+	return l.fakeSandboxes.Probe(ctx, id, req)
 }
 
 func TestOneLabOperationAtATime(t *testing.T) {
 	f := newFixture()
 	ctx := context.Background()
-	slow := slowLab{fakeLab: f.lab, release: make(chan struct{})}
+	slow := slowLab{fakeSandboxes: f.lab, release: make(chan struct{})}
 	f.svc = labsession.NewService(f.repo, catalogue{}, slow, f.spaces, f.ops, f.bus, f.clock)
 	a, _ := f.start(t, "tour")
 	op, err := f.svc.Check(ctx, 1, a.ID, "look", nil)
@@ -345,7 +398,20 @@ func TestRecoverLetsAnInterruptedSetupBeAbandoned(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out := f.outcome(t, op); out.Status != labsession.Abandoned {
+	if out := f.outcome(t, op); out.Status != labsession.Abandoned || out.Error != nil {
+		t.Fatalf("%+v", out) // no sandbox yet: nothing to delete
+	}
+}
+
+func TestASandboxAlreadyGoneIsNoTeardownError(t *testing.T) {
+	f := newFixture()
+	a, _ := f.start(t, "tour")
+	f.lab.gone["00000001"] = true
+	op, err := f.svc.Abandon(context.Background(), 1, a.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out := f.outcome(t, op); out.Status != labsession.Abandoned || out.Error != nil {
 		t.Fatalf("%+v", out)
 	}
 }

@@ -773,12 +773,13 @@ paths:
       operationId: openTerminal
       summary: Start a shell for a browser terminal
       description: >-
-        Starts an interactive shell on a pty and returns its session id; the client then connects a WebSocket to
+        Starts an interactive shell on a pty in a lab attempt's workspace (its sandbox on the lab host, where the
+        lab's namespace is kubectl's default) and returns its session id; the client then connects a WebSocket to
         /ws/terminal/{session} (binary frames out, JSON frames in, see internal/httpapi/terminal.go). A session
         survives 60 s without a client and replays its last 64 KiB of output on reconnect.
       tags: [terminals]
       requestBody:
-        required: false
+        required: true
         content:
           application/json:
             schema: { $ref: "#/components/schemas/TerminalSize" }
@@ -789,7 +790,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/TerminalSession" }
         "400":
-          description: The size is out of range.
+          description: The size is out of range, or no workspace is named.
           content:
             application/problem+json:
               schema: { $ref: "#/components/schemas/Problem" }
@@ -902,12 +903,13 @@ components:
         detail: { type: string, description: Why the check failed }
     TerminalSize:
       type: object
+      required: [workspace]
       properties:
         cols: { type: integer, minimum: 2, maximum: 1000, default: 80 }
         rows: { type: integer, minimum: 2, maximum: 1000, default: 24 }
         workspace:
           type: string
-          description: Start the shell in this workspace (a lab attempt's) instead of the repository
+          description: The lab attempt's workspace (its sandbox) to start the shell in
     TerminalSession:
       type: object
       required: [session]

@@ -14,10 +14,12 @@ import (
 	"github.com/coder/websocket"
 
 	"github.com/IhebBelhadj/opsforge-academy/academy/internal/httpapi"
+	"github.com/IhebBelhadj/opsforge-academy/academy/internal/lab"
 	"github.com/IhebBelhadj/opsforge-academy/academy/internal/opsforgeapi"
 	"github.com/IhebBelhadj/opsforge-academy/academy/internal/opsforgeapi/opsforgefake"
 	"github.com/IhebBelhadj/opsforge-academy/academy/internal/platform"
 	"github.com/IhebBelhadj/opsforge-academy/academy/internal/terminal"
+	"github.com/IhebBelhadj/opsforge-academy/academy/internal/workspace"
 )
 
 // fakeOpsForge is OpsForge's API in memory (an echoing shell, workspaces in memory) and a client of it.
@@ -41,18 +43,32 @@ func shells(t *testing.T, c *opsforgeapi.Client) (terminal.Shells, *terminal.Ser
 	return terminal.NewShells(svc), svc
 }
 
-// labServer is the transport with terminals on a fake OpsForge, on a loopback listener (real shells: the
-// integration test against `opsforge api serve`, cmd/academy).
+// labWorkspace is labServer's sandbox (the fake OpsForge's first), the learner's: terminals open in it.
+const labWorkspace = "00000001"
+
+// theLearner owns every workspace (the local user: the only one these tests sign in).
+type theLearner struct{}
+
+func (theLearner) Create(context.Context, string, int64, time.Time) error { return nil }
+func (theLearner) Owner(context.Context, string) (int64, error)           { return 1, nil }
+
+// labServer is the transport with terminals on a fake OpsForge, in a sandbox of it (labWorkspace), on a loopback
+// listener (real shells: the integration test against `opsforge api serve`, cmd/academy).
 func labServer(t *testing.T, opts ...func(*httpapi.Deps)) (*httptest.Server, *terminal.Service) {
 	t.Helper()
 	_, c := fakeOpsForge(t)
+	if p, err := c.Sandboxes().Create(context.Background(), lab.SandboxRequest{Kind: "lab", Label: "test"}); err != nil ||
+		p.Sandbox != labWorkspace {
+		t.Fatalf("sandbox %+v %v", p, err)
+	}
 	sh, svc := shells(t, c)
 	deps := httpapi.Deps{
-		Build:     platform.Build{Version: "test"},
-		Web:       built,
-		Log:       slog.New(slog.NewTextHandler(io.Discard, nil)),
-		Terminals: sh,
-		Identity:  identities(t),
+		Build:      platform.Build{Version: "test"},
+		Web:        built,
+		Log:        slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Terminals:  sh,
+		Workspaces: workspace.NewService(c.Files(), theLearner{}, platform.SystemClock{}),
+		Identity:   identities(t),
 	}
 	for _, opt := range opts {
 		opt(&deps)
@@ -65,9 +81,20 @@ func labServer(t *testing.T, opts ...func(*httpapi.Deps)) (*httptest.Server, *te
 	return srv, svc
 }
 
+// openTerminal opens a terminal with body, in labWorkspace unless body names a workspace.
 func openTerminal(t *testing.T, b *browser, body string) *http.Response {
 	t.Helper()
-	return b.send(t, http.MethodPost, "/api/v1/terminals", body, nil)
+	doc := map[string]any{}
+	if body != "" {
+		if err := json.Unmarshal([]byte(body), &doc); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, ok := doc["workspace"]; !ok {
+		doc["workspace"] = labWorkspace
+	}
+	data, _ := json.Marshal(doc)
+	return b.send(t, http.MethodPost, "/api/v1/terminals", string(data), nil)
 }
 
 func sessionID(t *testing.T, b *browser, body string) string {

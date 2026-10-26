@@ -13,12 +13,12 @@ import (
 	"github.com/IhebBelhadj/opsforge-academy/academy/internal/platform"
 )
 
-// Service runs lab attempts. busy is the one lab operation at a time: taken before an operation starts (a second
-// one is refused, never queued) and released when its background work ends.
+// Service runs lab attempts, each in its sandbox. busy is the one lab operation at a time: taken before an
+// operation starts (a second one is refused, never queued) and released when its background work ends.
 type Service struct {
 	repo    Repo
 	catalog Catalog
-	lab     LabController
+	lab     Sandboxes
 	spaces  Workspaces
 	ops     Operations
 	events  Publisher
@@ -26,10 +26,10 @@ type Service struct {
 	busy    sync.Mutex
 }
 
-// NewService runs labs through controller.
-func NewService(repo Repo, cat Catalog, controller LabController, spaces Workspaces, ops Operations,
+// NewService runs labs in sandboxes.
+func NewService(repo Repo, cat Catalog, sandboxes Sandboxes, spaces Workspaces, ops Operations,
 	events Publisher, clock platform.Clock) *Service {
-	return &Service{repo: repo, catalog: cat, lab: controller, spaces: spaces, ops: ops, events: events, clock: clock}
+	return &Service{repo: repo, catalog: cat, lab: sandboxes, spaces: spaces, ops: ops, events: events, clock: clock}
 }
 
 // definition is a live lab with its pack's hint penalty.
@@ -70,9 +70,9 @@ func (s *Service) publish(ctx context.Context, a Attempt, kind string, data map[
 	return err
 }
 
-// Start begins an attempt at a lab (from course/item, or "" for none) and runs its setup in the background. It
-// is refused while another attempt is active, the lab is busy or down, the lab needs another layout or its
-// required labs are not passed.
+// Start begins an attempt at a lab (from course/item, or "" for none): its sandbox is made, and its setup awaited
+// in the background. It is refused while another attempt is active, the lab is busy or down, the running lab
+// cannot host it (ErrUnavailable) or its required labs are not passed.
 func (s *Service) Start(ctx context.Context, user int64, labID, course, item string) (Attempt, operations.Operation, error) {
 	def, err := s.definition(ctx, labID)
 	if err != nil {
@@ -98,46 +98,76 @@ func (s *Service) Start(ctx context.Context, user int64, labID, course, item str
 			release()
 		}
 	}()
-	state, err := s.lab.State(ctx)
+	pending, err := s.lab.Create(ctx, s.request(user, def))
 	if err != nil {
-		return Attempt{}, operations.Operation{}, fmt.Errorf("%w: %w", ErrToolchain, err)
-	}
-	if !state.Up {
-		return Attempt{}, operations.Operation{}, ErrLabDown
-	}
-	if def.Layout != nil && (state.Layout == nil || *state.Layout != *def.Layout) {
-		return Attempt{}, operations.Operation{}, ErrUnavailable
+		return Attempt{}, operations.Operation{}, refusal(err)
 	}
 
 	a := Attempt{UserID: user, Lab: labID, Course: course, Item: item, Hash: def.Hash, Status: Setup,
-		StartedAt: s.clock.Now()}
-	if a.ID, err = s.repo.Create(ctx, a); err != nil {
-		return Attempt{}, operations.Operation{}, err
-	}
-	a.Workspace = fmt.Sprintf("lab-%d", a.ID)
+		StartedAt: s.clock.Now(), Workspace: pending.Sandbox}
 	if def.Namespace {
-		a.Namespace = a.Workspace
+		a.Namespace = "sb-" + pending.Sandbox // the contract's name for a sandbox's namespace
 	}
-	if err := s.repo.SetPlaces(ctx, a.ID, a.Namespace, a.Workspace); err != nil {
+	if a.ID, err = s.repo.Create(ctx, a); err != nil {
+		go s.discard(context.WithoutCancel(ctx), pending) // made for nothing: OpsForge would expire it, but sooner is better
 		return Attempt{}, operations.Operation{}, err
 	}
-	if err := s.spaces.Create(ctx, user, a.Workspace, def.Files); err != nil {
-		s.fail(ctx, &a, "workspace: "+err.Error())
-		return Attempt{}, operations.Operation{}, fmt.Errorf("workspace: %w", err)
-	}
-	if err := s.publish(ctx, a, KindStarted, map[string]any{"content_hash": a.Hash}); err != nil {
-		return Attempt{}, operations.Operation{}, err
-	}
-	op, err := s.ops.Start(ctx, user, OpStart, labID, func(ctx context.Context) (any, error) {
-		defer release()
-		return s.setUp(ctx, a, def)
-	})
+	op, err := s.begin(ctx, a, pending, release)
 	if err != nil {
 		s.fail(ctx, &a, err.Error())
+		go s.discard(context.WithoutCancel(ctx), pending)
 		return Attempt{}, operations.Operation{}, err
 	}
 	handedOver = true
 	return a, op, nil
+}
+
+// begin records a new attempt's places and owner, then awaits its sandbox's setup in the background (which
+// releases the lab when it ends).
+func (s *Service) begin(ctx context.Context, a Attempt, pending lab.Pending, release func()) (operations.Operation, error) {
+	if err := s.repo.SetPlaces(ctx, a.ID, a.Namespace, a.Workspace); err != nil {
+		return operations.Operation{}, err
+	}
+	if err := s.spaces.Claim(ctx, a.UserID, a.Workspace); err != nil {
+		return operations.Operation{}, fmt.Errorf("workspace: %w", err)
+	}
+	if err := s.publish(ctx, a, KindStarted, map[string]any{"content_hash": a.Hash}); err != nil {
+		return operations.Operation{}, err
+	}
+	return s.ops.Start(ctx, a.UserID, OpStart, a.Lab, func(ctx context.Context) (any, error) {
+		defer release()
+		sb, err := s.lab.Await(ctx, pending)
+		return s.settle(ctx, a, sb, err)
+	})
+}
+
+// request is def's sandbox for user. It always requires faults: besides its setup, the learner's terminal can break
+// links (`opsforge partition`, `degrade`: several labs ask for it), so OpsForge heals the lab when it deletes the
+// sandbox, as Phase 10 healed after every lab. Such a sandbox runs alone, as labs do here (one at a time).
+func (s *Service) request(user int64, def Definition) lab.SandboxRequest {
+	return lab.SandboxRequest{Kind: "lab", Label: fmt.Sprintf("lab %s (user %d)", def.ID, user),
+		Requires:  lab.Requires{Layout: def.Layout, Needs: def.Needs, Faults: true, ClusterChanges: def.ClusterChanges},
+		Namespace: def.Namespace, Files: def.Files, Setup: def.Setup, Teardown: def.Teardown}
+}
+
+// refusal is why OpsForge would not make a sandbox, as this module's errors.
+func refusal(err error) error {
+	switch {
+	case errors.Is(err, lab.ErrLabDown):
+		return ErrLabDown
+	case errors.Is(err, lab.ErrBusy):
+		return fmt.Errorf("%w: %w", ErrBusy, err)
+	case errors.Is(err, lab.ErrUnmet):
+		return fmt.Errorf("%w: %w", ErrUnavailable, err)
+	}
+	return fmt.Errorf("%w: %w", ErrToolchain, err)
+}
+
+// discard deletes a sandbox nobody will use, once its setup ended (best effort; ctx outlives the request).
+func (s *Service) discard(ctx context.Context, p lab.Pending) {
+	if _, err := s.lab.Await(ctx, p); err == nil {
+		_, _ = s.lab.Delete(ctx, p.Sandbox)
+	}
 }
 
 // unlocked checks that the user passed every lab def requires.
@@ -165,12 +195,17 @@ func (s *Service) unlocked(ctx context.Context, user int64, def Definition) erro
 	return nil
 }
 
-// setUp runs the setup; when it fails, the teardown cleans up what it did and the attempt fails.
-func (s *Service) setUp(ctx context.Context, a Attempt, def Definition) (Outcome, error) {
-	if msg := s.run(ctx, lab.Setup, def.Setup, a.Namespace); msg != "" {
-		if teardown := s.tearDown(ctx, a, def); teardown != "" {
-			msg += "\nteardown: " + teardown
-		}
+// settle is the end of a sandbox's setup (sb, or err when it could not be awaited): the attempt runs, or it failed
+// (OpsForge already cleaned the sandbox up after a failed setup).
+func (s *Service) settle(ctx context.Context, a Attempt, sb lab.Sandbox, err error) (Outcome, error) {
+	msg := ""
+	switch {
+	case err != nil:
+		msg = err.Error()
+	case sb.Status != lab.SandboxReady:
+		msg = setupError(sb)
+	}
+	if msg != "" {
 		s.fail(ctx, &a, msg)
 		return Outcome{Attempt: a.ID, Status: a.Status, Error: &msg, Results: []lab.Expectation{}}, nil
 	}
@@ -181,39 +216,34 @@ func (s *Service) setUp(ctx context.Context, a Attempt, def Definition) (Outcome
 	return Outcome{Attempt: a.ID, Status: a.Status, Results: []lab.Expectation{}}, nil
 }
 
-// run runs steps of a phase in the attempt's namespace; "" when they all ran, else why not. Nothing to run and no
-// namespace to create or delete is no toolchain call.
-func (s *Service) run(ctx context.Context, phase lab.Phase, steps []json.RawMessage, namespace string) string {
-	if len(steps) == 0 && namespace == "" {
-		return ""
+// setupError is why a failed sandbox's setup failed, with its cleanup's error if that failed too.
+func setupError(sb lab.Sandbox) string {
+	msg := "setup failed"
+	if sb.Setup != nil && sb.Setup.Error != "" {
+		msg = sb.Setup.Error
 	}
-	if steps == nil {
-		steps = []json.RawMessage{}
-	}
-	res, err := s.lab.Run(ctx, lab.RunRequest{Phase: phase, Steps: steps, Namespace: namespace})
-	if err != nil {
-		return err.Error()
-	}
-	if res.Error != "" {
-		return res.Error
-	}
-	return ""
-}
-
-// tearDown runs the teardown (which deletes the namespace) and heals the links; "" when both went well.
-func (s *Service) tearDown(ctx context.Context, a Attempt, def Definition) string {
-	msg := s.run(ctx, lab.Teardown, def.Teardown, a.Namespace)
-	if _, err := s.lab.Heal(ctx); err != nil {
-		msg = joinLines(msg, "heal: "+err.Error())
+	if sb.Teardown != nil && sb.Teardown.Error != "" {
+		msg += "\nteardown: " + sb.Teardown.Error
 	}
 	return msg
 }
 
-func joinLines(a, b string) string {
-	if a == "" {
-		return b
+// tearDown deletes the attempt's sandbox (its teardown, its namespace, a heal when it broke links); "" when that
+// went well (or there was nothing left to delete).
+func (s *Service) tearDown(ctx context.Context, a Attempt) string {
+	if a.Workspace == "" { // never got a sandbox
+		return ""
 	}
-	return a + "\n" + b
+	sb, err := s.lab.Delete(ctx, a.Workspace)
+	switch {
+	case errors.Is(err, lab.ErrGone):
+		return ""
+	case err != nil:
+		return err.Error()
+	case sb.Teardown != nil && sb.Teardown.Error != "":
+		return sb.Teardown.Error
+	}
+	return ""
 }
 
 // fail records a failed setup (best effort: the attempt must not stay active).
@@ -290,11 +320,13 @@ func (s *Service) check(ctx context.Context, a Attempt, def Definition, step Ste
 			out.Explain = &step.Check.Explain
 		}
 	case CheckProbe:
-		req := *step.Check.Probe
-		req.Namespace = a.Namespace
-		res, err := s.lab.Probe(ctx, req)
+		res, err := s.lab.Probe(ctx, a.Workspace, *step.Check.Probe)
 		if err != nil {
 			msg := err.Error()
+			if errors.Is(err, lab.ErrGone) {
+				msg = "this attempt's sandbox is gone (OpsForge deletes one after a day without use): abandon the " +
+					"attempt and start the lab again"
+			}
 			out.Error = &msg
 		} else {
 			ok = res.Passed
@@ -325,13 +357,13 @@ func (s *Service) check(ctx context.Context, a Attempt, def Definition, step Ste
 	return s.pass(ctx, a.ID, def, out)
 }
 
-// pass finishes an attempt whose steps all passed: teardown and heal, then its time and XP (hints read now).
+// pass finishes an attempt whose steps all passed: its sandbox deleted, then its time and XP (hints read now).
 func (s *Service) pass(ctx context.Context, id int64, def Definition, out Outcome) (Outcome, error) {
 	a, err := s.repo.Attempt(ctx, id)
 	if err != nil {
 		return Outcome{}, err
 	}
-	if msg := s.tearDown(ctx, a, def); msg != "" {
+	if msg := s.tearDown(ctx, a); msg != "" {
 		out.Error = &msg
 	}
 	now := s.clock.Now()
@@ -379,7 +411,8 @@ func (s *Service) Hint(ctx context.Context, user, id int64, stepID string) (Hint
 	return HintShown{Namespace: a.Namespace, Step: stepID, Index: idx, Text: step.Hints[idx], HintsUsed: a.HintsUsed}, nil
 }
 
-// Reset tears a running attempt's lab down and sets it up again; its steps start over (hints stay counted).
+// Reset sets a running attempt's sandbox up again (its teardown, then its setup; the files stay); its steps start
+// over (hints stay counted).
 func (s *Service) Reset(ctx context.Context, user, id int64) (operations.Operation, error) {
 	a, def, err := s.running(ctx, user, id)
 	if err != nil {
@@ -394,19 +427,14 @@ func (s *Service) Reset(ctx context.Context, user, id int64) (operations.Operati
 	}
 	op, err := s.ops.Start(ctx, user, OpReset, a.Lab, func(ctx context.Context) (any, error) {
 		defer release()
-		teardown := s.tearDown(ctx, a, def)
 		if err := s.repo.ClearSteps(ctx, a.ID); err != nil {
 			return nil, err
 		}
 		if err := s.publish(ctx, a, KindReset, nil); err != nil {
 			return nil, err
 		}
-		out, err := s.setUp(ctx, a, def)
-		if err == nil && teardown != "" && out.Error == nil {
-			msg := "teardown: " + teardown
-			out.Error = &msg
-		}
-		return out, err
+		sb, err := s.lab.Reset(ctx, a.Workspace)
+		return s.settle(ctx, a, sb, err)
 	})
 	if err != nil {
 		release()
@@ -414,9 +442,9 @@ func (s *Service) Reset(ctx context.Context, user, id int64) (operations.Operati
 	return op, err
 }
 
-// Abandon ends a running attempt: teardown and heal, nothing earned.
+// Abandon ends a running attempt: its sandbox deleted, nothing earned.
 func (s *Service) Abandon(ctx context.Context, user, id int64) (operations.Operation, error) {
-	a, def, err := s.running(ctx, user, id)
+	a, _, err := s.running(ctx, user, id)
 	if err != nil {
 		return operations.Operation{}, err
 	}
@@ -427,7 +455,7 @@ func (s *Service) Abandon(ctx context.Context, user, id int64) (operations.Opera
 	op, err := s.ops.Start(ctx, user, OpAbandon, a.Lab, func(ctx context.Context) (any, error) {
 		defer release()
 		out := Outcome{Attempt: a.ID, Status: Abandoned, Results: []lab.Expectation{}}
-		if msg := s.tearDown(ctx, a, def); msg != "" {
+		if msg := s.tearDown(ctx, a); msg != "" {
 			out.Error = &msg
 		}
 		now := s.clock.Now()

@@ -1,9 +1,37 @@
-// Package lab is the lab as the platform sees it: the documents of the toolchain contract (docs/courses/
-// architecture.md, "The lab toolchain contract"; academy/api/toolchain.schema.json). Modules declare the ports they
-// need over these types (labsession, labstate, challenge); internal/opsforgeapi implements them. Pure data.
+// Package lab is the lab as the platform sees it: the documents of OpsForge's contract (academy/contract/, its
+// pinned copy; docs/architecture.md "The OpsForge API"). Modules declare the ports they need over these types
+// (labsession, labstate, compiler, challenge); internal/opsforgeapi implements them. Pure data, and the errors
+// every adapter maps OpsForge's refusals to.
 package lab
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"strings"
+)
+
+var (
+	// ErrLabDown is lab work refused because the lab is down.
+	ErrLabDown = errors.New("the lab is down")
+	// ErrBusy is lab work refused because other lab work runs (one job at a time), or a sandbox that must run
+	// alone (faults, cluster changes) would share the lab.
+	ErrBusy = errors.New("the lab is busy")
+	// ErrUnmet is a sandbox the running lab cannot host (*UnmetError says why).
+	ErrUnmet = errors.New("the running lab cannot host this")
+	// ErrGone is a sandbox OpsForge no longer has (deleted, expired, or cleaned up after a restart).
+	ErrGone = errors.New("the sandbox is gone")
+)
+
+// UnmetError is ErrUnmet with what the running lab lacks, one entry each ("layout multi-cluster (...)").
+type UnmetError struct{ Unmet []string }
+
+func (e *UnmetError) Error() string {
+	return fmt.Sprintf("%v: %s", ErrUnmet, strings.Join(e.Unmet, "; "))
+}
+
+// Is makes errors.Is(err, ErrUnmet) true.
+func (e *UnmetError) Is(target error) bool { return target == ErrUnmet }
 
 // State is the lab now, as a mimic panel shows it (`academy state`).
 type State struct {
@@ -50,22 +78,51 @@ type Node struct {
 	Status string `json:"status"`
 }
 
-// Phase is when a lab's steps run: setup before the learner starts, teardown after a finish or an abandon.
-type Phase string
+// Requires is what a sandbox needs from the running lab: the course's layout and needs; Faults when its setup
+// breaks links (deleting it heals the lab), ClusterChanges when it changes the cluster outside its namespace. Either
+// of those makes it run alone.
+type Requires struct {
+	Layout         *string  `json:"layout,omitempty"`
+	Needs          []string `json:"needs,omitempty"`
+	Faults         bool     `json:"faults,omitempty"`
+	ClusterChanges bool     `json:"cluster_changes,omitempty"`
+}
 
-// The phases of `academy run`.
+// SandboxRequest is one attempt's sandbox (sandboxInput): Kind "lab" or "challenge", a Label for the lab's owner,
+// a Namespace (sb-<id>, `${ns}`) when asked, the workspace's first Files (path → text) and the steps OpsForge runs
+// to set it up and, when it deletes it, to tear it down. Steps are scenario steps as the bundle holds them.
+type SandboxRequest struct {
+	Kind      string            `json:"kind"`
+	Label     string            `json:"label"`
+	Requires  Requires          `json:"requires"`
+	Namespace bool              `json:"namespace,omitempty"`
+	Files     map[string]string `json:"files,omitempty"`
+	Setup     []json.RawMessage `json:"setup,omitempty"`
+	Teardown  []json.RawMessage `json:"teardown,omitempty"`
+}
+
+// The statuses of a sandbox that lab work ends with.
 const (
-	Setup    Phase = "setup"
-	Teardown Phase = "teardown"
+	SandboxReady   = "ready"
+	SandboxFailed  = "failed" // its setup failed; OpsForge already cleaned it up (Teardown)
+	SandboxDeleted = "deleted"
 )
 
-// RunRequest runs a lab's setup or teardown steps. Steps are scenario steps as the bundle holds them (validated when
-// the pack was compiled; the toolchain resolves their placeholders). A Namespace (lab-<attempt>, ch-<attempt>) is
-// created before setup and deleted after teardown, and fills `${ns}`.
-type RunRequest struct {
-	Phase     Phase             `json:"phase"`
-	Steps     []json.RawMessage `json:"steps"`
-	Namespace string            `json:"namespace,omitempty"`
+// Sandbox is one as OpsForge reports it (sandboxOutput). Setup is the last setup's result; Teardown the cleanup's
+// (after a failed setup, or when deleted).
+type Sandbox struct {
+	ID           string            `json:"id"`
+	Status       string            `json:"status"`
+	Namespace    *string           `json:"namespace"`
+	Placeholders map[string]string `json:"placeholders"`
+	Setup        *RunResult        `json:"setup"`
+	Teardown     *RunResult        `json:"teardown"`
+}
+
+// Pending is a sandbox being made: its id (known at once) and the job making it.
+type Pending struct {
+	Sandbox string
+	Job     string
 }
 
 // RunResult is what the steps measured. Error says why the run stopped early ("" when every step ran).
@@ -75,12 +132,11 @@ type RunResult struct {
 	Error   string             `json:"error"`
 }
 
-// ProbeRequest is a probe check: steps, then expectations on their metrics. Expect stays raw so its order (the
-// order of the results) is the author's.
+// ProbeRequest is a probe check, run in a sandbox: steps, then expectations on their metrics. Expect stays raw so
+// its order (the order of the results) is the author's.
 type ProbeRequest struct {
-	Steps     []json.RawMessage `json:"steps"`
-	Expect    json.RawMessage   `json:"expect"`
-	Namespace string            `json:"namespace,omitempty"`
+	Steps  []json.RawMessage `json:"steps"`
+	Expect json.RawMessage   `json:"expect"`
 }
 
 // ProbeResult is a check's verdict, one Expectation per condition. The probe stops at the first failing named step,

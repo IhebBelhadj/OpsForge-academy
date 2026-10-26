@@ -1006,8 +1006,8 @@ type TerminalSize struct {
 	Cols *int `json:"cols,omitempty"`
 	Rows *int `json:"rows,omitempty"`
 
-	// Workspace Start the shell in this workspace (a lab attempt's) instead of the repository
-	Workspace *string `json:"workspace,omitempty"`
+	// Workspace The lab attempt's workspace (its sandbox) to start the shell in
+	Workspace string `json:"workspace"`
 }
 
 // User defines model for User.
@@ -5332,13 +5332,10 @@ func (sh *strictHandler) OpenTerminal(w http.ResponseWriter, r *http.Request) {
 
 	var body OpenTerminalJSONRequestBody
 	if err := runtime.BindJSONBody(r, &body); err != nil {
-		if !errors.Is(err, io.EOF) {
-			sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
-			return
-		}
-	} else {
-		request.Body = &body
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
 	}
+	request.Body = &body
 
 	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
 		return sh.ssi.OpenTerminal(ctx, request.(OpenTerminalRequestObject))

@@ -42,42 +42,26 @@ func (c *Client) CheckSteps(ctx context.Context, sets []lab.StepSet) ([]lab.Step
 	return res.Errors, c.call(ctx, http.MethodPost, "/v1/steps/validate", in, "stepsOutput", &res, http.StatusOK)
 }
 
-// Run runs a lab's setup or teardown steps (a job: `POST /v1/runs`).
-func (c *Client) Run(ctx context.Context, req lab.RunRequest) (lab.RunResult, error) {
-	var res lab.RunResult
-	return res, c.job(ctx, "/v1/runs", struct {
-		Contract int `json:"contract"`
-		lab.RunRequest
-	}{Contract, req}, "runOutput", &res)
-}
-
-// Probe runs a probe check (a job: `POST /v1/probes`).
-func (c *Client) Probe(ctx context.Context, req lab.ProbeRequest) (lab.ProbeResult, error) {
-	var res lab.ProbeResult
-	return res, c.job(ctx, "/v1/probes", struct {
-		Contract int `json:"contract"`
-		lab.ProbeRequest
-	}{Contract, req}, "probeOutput", &res)
-}
-
-// Heal puts every link back to its state from before the first fault (a job: `POST /v1/heal`); false: there was
-// none.
-func (c *Client) Heal(ctx context.Context) (bool, error) {
-	var res struct {
-		Healed bool `json:"healed"`
-	}
-	return res.Healed, c.job(ctx, "/v1/heal", nil, "healOutput", &res)
-}
-
-// job is one lab job: started, then polled (each poll waits on the server) until done, within LabTimeout. A
-// failed job is its *Problem; its output is checked against $defs/<def> and decoded into out.
-func (c *Client) job(ctx context.Context, path string, in any, def string, out any) error {
+// job is one lab job: started, then awaited, within LabTimeout.
+func (c *Client) job(ctx context.Context, method, path string, in any, def string, out any) error {
 	ctx, cancel := context.WithTimeout(ctx, c.LabTimeout)
 	defer cancel()
-	var j jobDoc
-	if err := c.call(ctx, http.MethodPost, path, in, "jobOutput", &j, http.StatusAccepted); err != nil {
+	j, err := c.start(ctx, method, path, in)
+	if err != nil {
 		return err
 	}
+	return c.await(ctx, j, def, out)
+}
+
+// start posts lab work (202 + its job); a refusal is the call's problem.
+func (c *Client) start(ctx context.Context, method, path string, in any) (jobDoc, error) {
+	var j jobDoc
+	return j, c.call(ctx, method, path, in, "jobOutput", &j, http.StatusAccepted)
+}
+
+// await polls a job (each poll waits on the server) until it ends. A failed job is its *Problem; its output is
+// checked against $defs/<def> and decoded into out.
+func (c *Client) await(ctx context.Context, j jobDoc, def string, out any) error {
 	wait := int(c.Wait / time.Second)
 	for j.Status == "running" {
 		err := c.call(ctx, http.MethodGet, fmt.Sprintf("/v1/jobs/%s?wait=%d", j.ID, wait), nil, "jobOutput", &j,
@@ -96,12 +80,13 @@ func (c *Client) job(ctx context.Context, path string, in any, def string, out a
 		}
 		return j.Problem
 	}
-	return decode(path, j.Output, def, out)
+	return decode(j.Kind+" job", j.Output, def, out)
 }
 
 type jobDoc struct {
 	ID      string          `json:"id"`
 	Kind    string          `json:"kind"`
+	Sandbox *string         `json:"sandbox"`
 	Status  string          `json:"status"`
 	Output  json.RawMessage `json:"output"`
 	Problem *Problem        `json:"problem"`

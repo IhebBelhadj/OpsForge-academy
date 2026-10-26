@@ -1,6 +1,7 @@
 // Package opsforgeapi is the adapter to OpsForge: its HTTP API (`opsforge api serve`; academy/contract/openapi.yaml
 // and toolchain.schema.json, OpsForge's contract as pinned). Academy reads nothing of an OpsForge checkout: lab
-// state, lab work (jobs), scenario-step checks, the learners' workspaces and their terminals all go through here.
+// state, scenario-step checks and the attempts' sandboxes (their lab work as jobs, their files, their terminals) all
+// go through here.
 // Every document carries `contract`, the major version: another one is refused; `GET /v1/version` also reports
 // the minor: below MinMinor, OpsForge lacks something this platform uses.
 package opsforgeapi
@@ -52,10 +53,11 @@ func (e *TooOldError) Error() string {
 // Problem is a failure OpsForge described (RFC 9457 fields), with the HTTP status it came with (0 for a failed
 // job's problem).
 type Problem struct {
-	Status int    `json:"-"`
-	Type   string `json:"type"`
-	Title  string `json:"title"`
-	Detail string `json:"detail"`
+	Status int      `json:"-"`
+	Type   string   `json:"type"`
+	Title  string   `json:"title"`
+	Detail string   `json:"detail"`
+	Unmet  []string `json:"unmet,omitempty"` // with unmet-requirements: what the running lab lacks
 }
 
 func (p *Problem) Error() string { return fmt.Sprintf("opsforge: %s: %s", p.Title, p.Detail) }
@@ -78,6 +80,8 @@ var (
 	ErrInvalidDocument = errors.New("document does not match toolchain.schema.json")
 	// ErrJobLost is a job OpsForge no longer knows (it restarted, or kept it past an hour).
 	ErrJobLost = errors.New("opsforge lost the job")
+	// ErrNoWorkspace is a terminal without a workspace: shells only run in a sandbox.
+	ErrNoWorkspace = errors.New("a terminal opens in a sandbox's workspace")
 )
 
 // Client calls OpsForge at a base URL with its token. Timeout bounds a call, LabTimeout a job (lab work waits for

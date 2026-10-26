@@ -1,6 +1,6 @@
-// Package workspace is the learner's files: one tree per lab attempt, kept on the lab host (OpsForge's
-// `/v1/workspaces/<id>`, opsforgeapi.Files) and seeded with the lab's files, shared by the editor (the API) and the
-// terminal (its shell starts there). Paths are confined to the tree (no `..`, no absolute paths, symlinks never followed out of it) and sizes capped
+// Package workspace is the learner's files: one tree per lab attempt, its sandbox's workspace on the lab host
+// (OpsForge's `/v1/sandboxes/<id>/files`, opsforgeapi.Files; the id is the sandbox's), made by OpsForge with the
+// lab's files and gone with the sandbox, shared by the editor (the API) and the terminal (its shell starts there). Paths are confined to the tree (no `..`, no absolute paths, symlinks never followed out of it) and sizes capped
 // (docs/courses/architecture.md, "Security").
 package workspace
 
@@ -29,7 +29,7 @@ var (
 	ErrTooLarge = errors.New("over the workspace's size limits")
 	// ErrConflict is a save based on a version of the file that is no longer the current one.
 	ErrConflict = errors.New("the file changed since it was read")
-	// ErrExists is creating a workspace, or moving a file, onto one that exists.
+	// ErrExists is moving a file onto one that exists.
 	ErrExists = errors.New("already exists")
 	// ErrNotText is reading a file that is not UTF-8 text (made in the terminal).
 	ErrNotText = errors.New("not a text file")

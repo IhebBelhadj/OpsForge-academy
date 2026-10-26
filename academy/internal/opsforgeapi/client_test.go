@@ -158,15 +158,15 @@ func TestGoldenDocuments(t *testing.T) {
 		}
 	}
 	running := func() (int, string) {
-		return 202, `{"contract": 1, "id": "0123456789abcdef", "kind": "run", "status": "running", "log": [],
-			"output": null, "problem": null}`
+		return 202, `{"contract": 1, "id": "0123456789abcdef", "kind": "create", "sandbox": "0123abcd",
+			"status": "running", "log": [], "output": null, "problem": null}`
 	}
 	routes := map[string]func() (int, string){
 		"GET /v1/version":               func() (int, string) { return 200, string(golden(t, "version.json")) },
 		"GET /v1/state":                 func() (int, string) { return 200, string(golden(t, "state.up.json")) },
 		"POST /v1/steps/validate":       func() (int, string) { return 200, string(golden(t, "validate-steps.json")) },
-		"POST /v1/runs":                 running,
-		"GET /v1/jobs/0123456789abcdef": jobOf("run.golden.json"),
+		"POST /v1/sandboxes":            running,
+		"GET /v1/jobs/0123456789abcdef": jobOf("sandbox.json"),
 	}
 	c := serve(t, routes)
 	ctx := context.Background()
@@ -179,22 +179,23 @@ func TestGoldenDocuments(t *testing.T) {
 	if errs, err := c.CheckSteps(ctx, []lab.StepSet{{}}); err != nil || len(errs) != 5 || errs[0].Set != 1 {
 		t.Fatalf("steps %+v %v", errs, err)
 	}
-	res, err := c.Run(ctx, lab.RunRequest{Phase: lab.Setup})
-	if err != nil || res.Metrics["x.value"] != 42 || res.Error != "" || len(res.Log) == 0 {
-		t.Fatalf("run %+v %v", res, err)
+	sandboxes := c.Sandboxes()
+	pending, err := sandboxes.Create(ctx, lab.SandboxRequest{Kind: "lab", Label: "x"})
+	if err != nil || pending.Sandbox != "0123abcd" || pending.Job != "0123456789abcdef" {
+		t.Fatalf("create %+v %v", pending, err)
+	}
+	sb, err := sandboxes.Await(ctx, pending)
+	if err != nil || sb.Status != lab.SandboxReady || *sb.Namespace != "sb-0123abcd" || sb.Placeholders["${ns}"] == "" ||
+		sb.Setup == nil || sb.Setup.Error != "" || len(sb.Setup.Log) == 0 || sb.Teardown != nil {
+		t.Fatalf("sandbox %+v %v", sb, err)
 	}
 	for _, name := range []string{"probe.passed.json", "probe.failed.json"} {
-		routes["POST /v1/probes"] = running
+		routes["POST /v1/sandboxes/0123abcd/probes"] = running
 		routes["GET /v1/jobs/0123456789abcdef"] = jobOf(name)
-		p, err := serve(t, routes).Probe(ctx, lab.ProbeRequest{})
+		p, err := serve(t, routes).Sandboxes().Probe(ctx, "0123abcd", lab.ProbeRequest{})
 		if err != nil || len(p.Results) == 0 || p.Passed != (name == "probe.passed.json") {
 			t.Fatalf("%s: %+v %v", name, p, err)
 		}
-	}
-	routes["POST /v1/heal"] = running
-	routes["GET /v1/jobs/0123456789abcdef"] = jobOf("heal.json")
-	if healed, err := serve(t, routes).Heal(ctx); err != nil || !healed {
-		t.Fatalf("heal %v %v", healed, err)
 	}
 }
 
@@ -219,43 +220,92 @@ func TestInvalidDocumentsAreRefused(t *testing.T) {
 	}
 }
 
-func TestJobs(t *testing.T) {
+func TestSandboxes(t *testing.T) {
 	f, c := fake(t)
 	ctx := context.Background()
-	f.Run = func(in json.RawMessage) (any, error) {
-		if !strings.Contains(string(in), `"namespace":"lab-7"`) || !strings.Contains(string(in), `"contract":1`) {
-			t.Errorf("run input %s", in)
+	sandboxes := c.Sandboxes()
+	req := lab.SandboxRequest{Kind: "lab", Label: "lab tour (user 1)", Namespace: true,
+		Files: map[string]string{"web.yaml": "kind: Pod\n"}, Setup: []json.RawMessage{json.RawMessage(`{"sleep":"1s"}`)}}
+	f.Setup = func(in json.RawMessage) (string, error) {
+		if !strings.Contains(string(in), `"contract":1`) || !strings.Contains(string(in), `"namespace":true`) {
+			t.Errorf("sandbox input %s", in)
 		}
-		return map[string]any{"metrics": map[string]float64{"x.value": 1}, "log": []string{"0.0s x"}, "error": nil}, nil
+		return "", nil
 	}
-	res, err := c.Run(ctx, lab.RunRequest{Phase: lab.Setup, Steps: []json.RawMessage{json.RawMessage(`{"sleep":"1s"}`)},
-		Namespace: "lab-7"})
-	if err != nil || res.Metrics["x.value"] != 1 {
-		t.Fatalf("run %+v %v", res, err)
+	pending, err := sandboxes.Create(ctx, req)
+	if err != nil {
+		t.Fatal(err)
 	}
-	f.Heal = func() (bool, error) { return false, errors.New("lab is down") }
+	sb, err := sandboxes.Await(ctx, pending)
+	if err != nil || sb.ID != pending.Sandbox || sb.Status != lab.SandboxReady || *sb.Namespace != "sb-"+sb.ID {
+		t.Fatalf("ready %+v %v", sb, err)
+	}
+	if got, err := c.Files().Read(ctx, sb.ID, "web.yaml"); err != nil || string(got) != "kind: Pod\n" {
+		t.Fatalf("its files %q %v", got, err)
+	}
+	if p, err := sandboxes.Probe(ctx, sb.ID, lab.ProbeRequest{}); err != nil || !p.Passed {
+		t.Fatalf("probe %+v %v", p, err)
+	}
+	if sb, err := sandboxes.Reset(ctx, sb.ID); err != nil || sb.Status != lab.SandboxReady {
+		t.Fatalf("reset %+v %v", sb, err)
+	}
+	if gone, err := sandboxes.Delete(ctx, sb.ID); err != nil || gone.Status != lab.SandboxDeleted || gone.Teardown == nil {
+		t.Fatalf("delete %+v %v", gone, err)
+	}
+	for name, err := range map[string]error{
+		"delete": func() error { _, err := sandboxes.Delete(ctx, sb.ID); return err }(),
+		"probe":  func() error { _, err := sandboxes.Probe(ctx, sb.ID, lab.ProbeRequest{}); return err }(),
+	} {
+		if !errors.Is(err, lab.ErrGone) {
+			t.Errorf("%s once deleted: %v", name, err)
+		}
+	}
+
+	// A failing setup: the sandbox fails (OpsForge cleaned it up); a setup that could not run: a failed job
+	f.Setup = func(json.RawMessage) (string, error) { return "steps[0]: exit 1", nil }
+	pending, _ = sandboxes.Create(ctx, req)
+	if sb, err := sandboxes.Await(ctx, pending); err != nil || sb.Status != lab.SandboxFailed ||
+		sb.Setup.Error != "steps[0]: exit 1" || sb.Teardown == nil {
+		t.Fatalf("failed setup %+v %v", sb, err)
+	}
+	if _, err := sandboxes.Probe(ctx, pending.Sandbox, lab.ProbeRequest{}); err == nil {
+		t.Fatal("a probe in a failed sandbox")
+	}
+	f.Setup = func(json.RawMessage) (string, error) { return "", errors.New("lab is down") }
+	pending, _ = sandboxes.Create(ctx, req)
 	var p *opsforgeapi.Problem
-	if _, err := c.Heal(ctx); !errors.As(err, &p) || p.Slug() != "lab-error" || p.Detail != "lab is down" {
+	if _, err := sandboxes.Await(ctx, pending); !errors.As(err, &p) || p.Slug() != "lab-error" || p.Detail != "lab is down" {
 		t.Fatalf("failed job: %v", err)
 	}
-	busy := serve(t, map[string]func() (int, string){
-		"POST /v1/heal": func() (int, string) {
-			return 409, `{"contract": 1, "type": "/problems/lab-busy", "title": "busy", "detail": "a run job"}`
-		},
-	})
-	if _, err := busy.Heal(ctx); !errors.As(err, &p) || p.Status != 409 || p.Slug() != "lab-busy" {
-		t.Fatalf("busy: %v", err)
+}
+
+func TestSandboxRefusals(t *testing.T) {
+	f, c := fake(t)
+	ctx := context.Background()
+	for slug, want := range map[string]error{"lab-down": lab.ErrLabDown, "lab-busy": lab.ErrBusy,
+		"unmet-requirements": lab.ErrUnmet} {
+		f.Refuse = func(json.RawMessage) *opsforgefake.Refusal {
+			return &opsforgefake.Refusal{Slug: slug, Detail: "no", Unmet: []string{"ci (not in topology.yml)"}}
+		}
+		if _, err := c.Sandboxes().Create(ctx, lab.SandboxRequest{Kind: "lab", Label: "x"}); !errors.Is(err, want) {
+			t.Errorf("%s: %v", slug, err)
+		}
+	}
+	f.Refuse = func(json.RawMessage) *opsforgefake.Refusal {
+		return &opsforgefake.Refusal{Slug: "unmet-requirements", Detail: "no", Unmet: []string{"ci (not in topology.yml)"}}
+	}
+	var unmet *lab.UnmetError
+	if _, err := c.Sandboxes().Create(ctx, lab.SandboxRequest{Kind: "lab", Label: "x"}); !errors.As(err, &unmet) ||
+		len(unmet.Unmet) != 1 || unmet.Unmet[0] != "ci (not in topology.yml)" {
+		t.Fatalf("unmet: %v", err)
 	}
 	lost := serve(t, map[string]func() (int, string){
-		"POST /v1/heal": func() (int, string) {
-			return 202, `{"contract": 1, "id": "0123456789abcdef", "kind": "heal", "status": "running", "log": [],
-				"output": null, "problem": null}`
-		},
 		"GET /v1/jobs/0123456789abcdef": func() (int, string) {
 			return 404, `{"contract": 1, "type": "/problems/not-found", "title": "Not found", "detail": "no job"}`
 		},
 	})
-	if _, err := lost.Heal(ctx); !errors.Is(err, opsforgeapi.ErrJobLost) {
+	if _, err := lost.Sandboxes().Await(ctx, lab.Pending{Sandbox: "0123abcd", Job: "0123456789abcdef"}); !errors.Is(err,
+		opsforgeapi.ErrJobLost) {
 		t.Fatalf("lost: %v", err)
 	}
 }
@@ -263,66 +313,76 @@ func TestJobs(t *testing.T) {
 func TestAJobOutlivesItsPolls(t *testing.T) {
 	polls := 0
 	c := serve(t, map[string]func() (int, string){
-		"POST /v1/heal": func() (int, string) {
-			return 202, `{"contract": 1, "id": "0123456789abcdef", "kind": "heal", "status": "running", "log": [],
-				"output": null, "problem": null}`
+		"DELETE /v1/sandboxes/0123abcd": func() (int, string) {
+			return 202, `{"contract": 1, "id": "0123456789abcdef", "kind": "delete", "sandbox": "0123abcd",
+				"status": "running", "log": [], "output": null, "problem": null}`
 		},
 		"GET /v1/jobs/0123456789abcdef": func() (int, string) {
 			polls++
 			status, output := "running", "null"
 			if polls == 3 {
-				status, output = "done", `{"contract": 1, "healed": true}`
+				var doc map[string]any
+				_ = json.Unmarshal(golden(t, "sandbox.json"), &doc)
+				doc["status"] = "deleted"
+				data, _ := json.Marshal(doc)
+				status, output = "done", string(data)
 			}
-			return 200, `{"contract": 1, "id": "0123456789abcdef", "kind": "heal", "status": "` + status +
-				`", "log": [], "output": ` + output + `, "problem": null}`
+			return 200, `{"contract": 1, "id": "0123456789abcdef", "kind": "delete", "sandbox": "0123abcd", "status": "` +
+				status + `", "log": [], "output": ` + output + `, "problem": null}`
 		},
 	})
-	if healed, err := c.Heal(context.Background()); err != nil || !healed || polls != 3 {
-		t.Fatalf("healed %v after %d polls: %v", healed, polls, err)
+	if sb, err := c.Sandboxes().Delete(context.Background(), "0123abcd"); err != nil || sb.Status != "deleted" ||
+		polls != 3 {
+		t.Fatalf("deleted %+v after %d polls: %v", sb, polls, err)
 	}
+}
+
+// sandbox makes a sandbox on c and returns its id (its workspace's too).
+func sandbox(t *testing.T, c *opsforgeapi.Client) string {
+	t.Helper()
+	pending, err := c.Sandboxes().Create(context.Background(), lab.SandboxRequest{Kind: "lab", Label: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return pending.Sandbox
 }
 
 func TestFiles(t *testing.T) {
 	_, c := fake(t)
 	files, ctx := c.Files(), context.Background()
-	if err := files.Create(ctx, "lab-7"); err != nil {
+	ws := sandbox(t, c)
+	if err := files.Write(ctx, ws, "k8s/pod one.yaml", []byte("kind: Pod\n")); err != nil {
 		t.Fatal(err)
 	}
-	if err := files.Create(ctx, "lab-7"); !errors.Is(err, workspace.ErrExists) {
-		t.Fatalf("again: %v", err)
-	}
-	if err := files.Write(ctx, "lab-7", "k8s/pod one.yaml", []byte("kind: Pod\n")); err != nil {
+	if err := files.Write(ctx, ws, "empty", nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := files.Write(ctx, "lab-7", "empty", nil); err != nil {
-		t.Fatal(err)
-	}
-	if got, err := files.Read(ctx, "lab-7", "k8s/pod one.yaml"); err != nil || string(got) != "kind: Pod\n" {
+	if got, err := files.Read(ctx, ws, "k8s/pod one.yaml"); err != nil || string(got) != "kind: Pod\n" {
 		t.Fatalf("read %q %v", got, err)
 	}
-	if list, err := files.List(ctx, "lab-7"); err != nil || len(list) != 2 || list[1].Path != "k8s/pod one.yaml" ||
+	if list, err := files.List(ctx, ws); err != nil || len(list) != 2 || list[1].Path != "k8s/pod one.yaml" ||
 		list[1].Size != 10 {
 		t.Fatalf("list %+v %v", list, err)
 	}
-	if err := files.Rename(ctx, "lab-7", "empty", "k8s/pod one.yaml"); !errors.Is(err, workspace.ErrExists) {
+	if err := files.Rename(ctx, ws, "empty", "k8s/pod one.yaml"); !errors.Is(err, workspace.ErrExists) {
 		t.Fatalf("onto a file: %v", err)
 	}
-	if err := files.Rename(ctx, "lab-7", "empty", "moved"); err != nil {
+	if err := files.Rename(ctx, ws, "empty", "moved"); err != nil {
 		t.Fatal(err)
 	}
-	if err := files.Remove(ctx, "lab-7", "moved"); err != nil {
+	if err := files.Remove(ctx, ws, "moved"); err != nil {
 		t.Fatal(err)
 	}
 	for name, err := range map[string]error{
-		"read":   func() error { _, err := files.Read(ctx, "lab-7", "moved"); return err }(),
-		"list":   func() error { _, err := files.List(ctx, "lab-99"); return err }(),
-		"remove": files.Remove(ctx, "lab-7", "moved"),
+		"read":   func() error { _, err := files.Read(ctx, ws, "moved"); return err }(),
+		"list":   func() error { _, err := files.List(ctx, "0123abcd"); return err }(),
+		"remove": files.Remove(ctx, ws, "moved"),
 	} {
 		if !errors.Is(err, workspace.ErrNotFound) {
 			t.Errorf("%s: %v", name, err)
 		}
 	}
-	if err := files.Write(ctx, "lab-7", "big", make([]byte, workspace.MaxFile+1)); !errors.Is(err, workspace.ErrTooLarge) {
+	if err := files.Write(ctx, ws, "big", make([]byte, workspace.MaxFile+1)); !errors.Is(err, workspace.ErrTooLarge) {
 		t.Fatalf("too large: %v", err)
 	}
 }
@@ -347,13 +407,13 @@ func readUntil(t *testing.T, p terminal.Pty, want string) string {
 }
 
 func TestShells(t *testing.T) {
-	f, c := fake(t)
-	_ = f.Files.Create(context.Background(), "lab-7")
-	p, err := c.Shells().Spawn(terminal.Spec{Workspace: "lab-7", Cols: 100, Rows: 30})
+	_, c := fake(t)
+	ws := sandbox(t, c)
+	p, err := c.Shells().Spawn(terminal.Spec{Workspace: ws, Cols: 100, Rows: 30})
 	if err != nil {
 		t.Fatal(err)
 	}
-	readUntil(t, p, "Lab terminal in /workspaces/lab-7")
+	readUntil(t, p, "Lab terminal in /workspaces/"+ws)
 	_, _ = p.Write([]byte("stty size\r"))
 	readUntil(t, p, "30 100")
 	if err := p.Resize(120, 40); err != nil {
@@ -371,7 +431,10 @@ func TestShells(t *testing.T) {
 	if err := p.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.Shells().Spawn(terminal.Spec{Workspace: "lab-99"}); !errors.Is(err, workspace.ErrNotFound) {
-		t.Fatalf("unknown workspace: %v", err)
+	if _, err := c.Shells().Spawn(terminal.Spec{Workspace: "0123abcd"}); !errors.Is(err, workspace.ErrNotFound) {
+		t.Fatalf("unknown sandbox: %v", err)
+	}
+	if _, err := c.Shells().Spawn(terminal.Spec{}); !errors.Is(err, opsforgeapi.ErrNoWorkspace) {
+		t.Fatalf("no workspace: %v", err)
 	}
 }

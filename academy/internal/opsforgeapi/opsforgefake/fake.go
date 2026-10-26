@@ -1,7 +1,7 @@
 // Package opsforgefake is OpsForge's HTTP API in memory (academy/contract/openapi.yaml), for Academy's tests and
-// the e2e suite (cmd/opsforge-fake): an empty lab by default, scripted lab work, workspaces in memory and a
-// terminal that echoes what is typed. It answers as `opsforge api serve` does: the token on every route but
-// /v1/version, problem documents, jobs that are running when started and done when polled.
+// the e2e suite (cmd/opsforge-fake): an empty lab by default, sandboxes whose lab work is scripted, their
+// workspaces in memory and a terminal that echoes what is typed. It answers as `opsforge api serve` does: the
+// token on every route but /v1/version, problem documents, jobs that are running when started and done when polled.
 package opsforgefake
 
 import (
@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/coder/websocket"
 
@@ -30,27 +31,55 @@ type Fake struct {
 	Minor   int
 	State   func() lab.State
 	Steps   func(sets []json.RawMessage) []lab.StepError
-	Run     func(in json.RawMessage) (any, error) // the runOutput document, or a failed job
-	Probe   func(in json.RawMessage) (any, error)
-	Heal    func() (bool, error)
-	Files   *memstore.Store
+	// Refuse refuses a sandboxInput before anything is made (nil: made)
+	Refuse func(in json.RawMessage) *Refusal
+	// Setup is a sandbox's setup (its sandboxInput; on reset too): the runOutput's error ("" when it ran), or a
+	// failed job
+	Setup func(in json.RawMessage) (string, error)
+	Probe func(in json.RawMessage) (any, error) // the probeOutput document, or a failed job
+	Files *memstore.Store
 
-	mu    sync.Mutex
-	jobs  map[string]*job
-	Calls []string // "METHOD /path" of every authorized request
+	mu        sync.Mutex
+	jobs      map[string]*job
+	sandboxes map[string]*sandbox
+	made      int
+	Calls     []string // "METHOD /path" of every authorized request
+}
+
+// Refusal is a problem answering POST /v1/sandboxes (lab-down, lab-busy, unmet-requirements with Unmet).
+type Refusal struct {
+	Slug   string
+	Detail string
+	Unmet  []string
+}
+
+// sandbox is one sandbox: its input and its document (sandboxOutput).
+type sandbox struct {
+	in  json.RawMessage
+	doc map[string]any
 }
 
 // job is started running and reads as done (or failed) from the first poll on.
 type job struct {
-	ID     string
-	Kind   string
-	Log    []string
-	result map[string]any
+	ID      string
+	Kind    string
+	Sandbox string
+	Log     []string
+	result  map[string]any
+}
+
+// sandbox is the job's `sandbox`: its id, null for heal.
+func (j *job) sandbox() any {
+	if j.Sandbox == "" {
+		return nil
+	}
+	return j.Sandbox
 }
 
 // New returns an empty lab answering for token.
 func New(token string) *Fake {
-	return &Fake{Token: token, Version: "1.0.0-fake", Files: memstore.New(), jobs: map[string]*job{}}
+	return &Fake{Token: token, Version: "1.0.0-fake", Files: memstore.New(), jobs: map[string]*job{},
+		sandboxes: map[string]*sandbox{}}
 }
 
 func problem(w http.ResponseWriter, status int, slug, detail string) {
@@ -109,45 +138,33 @@ func (f *Fake) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			errs = append(errs, f.Steps(in.Sets)...)
 		}
 		send(w, http.StatusOK, map[string]any{"errors": errs})
-	case route == "POST /v1/runs", route == "POST /v1/probes", route == "POST /v1/heal":
-		f.startJob(w, r)
+	case route == "POST /v1/heal":
+		f.startJob(w, "heal", "", func() (any, error) { return map[string]any{"healed": false}, nil })
 	case strings.HasPrefix(route, "GET /v1/jobs/"):
 		f.getJob(w, strings.TrimPrefix(r.URL.Path, "/v1/jobs/"))
-	case strings.HasPrefix(r.URL.Path, "/v1/workspaces/"):
-		f.workspaces(w, r)
-	case route == "GET /v1/terminal":
-		f.terminal(w, r)
+	case route == "GET /v1/sandboxes":
+		f.mu.Lock()
+		list := []map[string]any{}
+		for _, sb := range f.sandboxes {
+			list = append(list, sb.doc)
+		}
+		f.mu.Unlock()
+		send(w, http.StatusOK, map[string]any{"sandboxes": list})
+	case route == "POST /v1/sandboxes":
+		f.create(w, r)
+	case strings.HasPrefix(r.URL.Path, "/v1/sandboxes/"):
+		f.inSandbox(w, r)
 	default:
 		problem(w, http.StatusNotFound, "not-found", "no route "+r.URL.Path)
 	}
 }
 
-func (f *Fake) startJob(w http.ResponseWriter, r *http.Request) {
-	kind := map[string]string{"/v1/runs": "run", "/v1/probes": "probe", "/v1/heal": "heal"}[r.URL.Path]
-	in, _ := io.ReadAll(r.Body)
-	var out any
-	var err error
-	switch kind {
-	case "run":
-		out, err = map[string]any{"metrics": map[string]float64{}, "log": []string{}, "error": nil}, nil
-		if f.Run != nil {
-			out, err = f.Run(in)
-		}
-	case "probe":
-		out, err = map[string]any{"passed": true, "results": []any{}, "log": []string{}, "error": nil}, nil
-		if f.Probe != nil {
-			out, err = f.Probe(in)
-		}
-	case "heal":
-		healed := false
-		if f.Heal != nil {
-			healed, err = f.Heal()
-		}
-		out = map[string]any{"healed": healed}
-	}
+// startJob answers 202 with a job that reads as work's outcome from the first poll on.
+func (f *Fake) startJob(w http.ResponseWriter, kind, sandbox string, work func() (any, error)) {
+	out, err := work()
 	b := make([]byte, 8)
 	_, _ = rand.Read(b)
-	j := &job{ID: hex.EncodeToString(b), Kind: kind, Log: []string{}}
+	j := &job{ID: hex.EncodeToString(b), Kind: kind, Sandbox: sandbox, Log: []string{}}
 	if err != nil {
 		j.result = map[string]any{"status": "failed", "problem": map[string]any{"contract": 1,
 			"type": "/problems/lab-error", "title": "Lab error", "detail": err.Error()}}
@@ -162,8 +179,160 @@ func (f *Fake) startJob(w http.ResponseWriter, r *http.Request) {
 	f.jobs[j.ID] = j
 	f.mu.Unlock()
 	w.Header().Set("Location", "/v1/jobs/"+j.ID)
-	send(w, http.StatusAccepted, map[string]any{"id": j.ID, "kind": kind, "status": "running", "log": j.Log,
-		"output": nil, "problem": nil})
+	send(w, http.StatusAccepted, map[string]any{"id": j.ID, "kind": kind, "sandbox": j.sandbox(), "status": "running",
+		"log": j.Log, "output": nil, "problem": nil})
+}
+
+func runOutput(errMsg string) map[string]any {
+	doc := map[string]any{"contract": 1, "metrics": map[string]float64{}, "log": []string{}, "error": nil}
+	if errMsg != "" {
+		doc["error"] = errMsg
+	}
+	return doc
+}
+
+// create makes a sandbox: its workspace with the input's files, then its (scripted) setup as a job.
+func (f *Fake) create(w http.ResponseWriter, r *http.Request) {
+	raw, _ := io.ReadAll(r.Body)
+	var in struct {
+		Kind      string            `json:"kind"`
+		Label     string            `json:"label"`
+		Requires  map[string]any    `json:"requires"`
+		Namespace bool              `json:"namespace"`
+		Files     map[string]string `json:"files"`
+	}
+	if json.Unmarshal(raw, &in) != nil || in.Kind == "" || in.Label == "" {
+		problem(w, http.StatusBadRequest, "bad-input", "not a sandboxInput")
+		return
+	}
+	if f.Refuse != nil {
+		if p := f.Refuse(raw); p != nil {
+			w.Header().Set("Content-Type", "application/problem+json")
+			w.WriteHeader(http.StatusConflict)
+			doc := map[string]any{"contract": 1, "type": "/problems/" + p.Slug, "title": p.Slug, "detail": p.Detail}
+			if p.Unmet != nil {
+				doc["unmet"] = p.Unmet
+			}
+			_ = json.NewEncoder(w).Encode(doc)
+			return
+		}
+	}
+	f.mu.Lock()
+	f.made++
+	id := fmt.Sprintf("%08x", f.made) // as opaque as OpsForge's, and predictable in tests
+	f.mu.Unlock()
+	ctx := r.Context()
+	_ = f.Files.Create(ctx, id)
+	for path, text := range in.Files {
+		_ = f.Files.Write(ctx, id, path, []byte(text))
+	}
+	var ns any
+	placeholders := map[string]string{}
+	if in.Namespace {
+		ns = "sb-" + id
+		placeholders["${ns}"] = "sb-" + id
+	}
+	if in.Requires == nil {
+		in.Requires = map[string]any{}
+	}
+	now := time.Now().UTC()
+	sb := &sandbox{in: raw, doc: map[string]any{"contract": 1, "id": id, "kind": in.Kind, "label": in.Label,
+		"status": "creating", "namespace": ns, "layout": "stretched", "placeholders": placeholders,
+		"requires": in.Requires, "setup": nil, "teardown": nil, "created_at": now.Format(time.RFC3339),
+		"expires_at": now.Add(24 * time.Hour).Format(time.RFC3339)}}
+	f.mu.Lock()
+	f.sandboxes[id] = sb
+	f.mu.Unlock()
+	f.startJob(w, "create", id, func() (any, error) { return f.setUp(sb) })
+}
+
+// setUp runs a sandbox's scripted setup: ready, or failed (and cleaned up).
+func (f *Fake) setUp(sb *sandbox) (any, error) {
+	msg := ""
+	if f.Setup != nil {
+		var err error
+		if msg, err = f.Setup(sb.in); err != nil {
+			return nil, err
+		}
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	sb.doc["setup"], sb.doc["teardown"], sb.doc["status"] = runOutput(msg), nil, "ready"
+	if msg != "" {
+		sb.doc["status"], sb.doc["teardown"] = "failed", runOutput("")
+	}
+	return copyDoc(sb.doc), nil
+}
+
+func copyDoc(doc map[string]any) map[string]any {
+	out := make(map[string]any, len(doc))
+	for k, v := range doc {
+		out[k] = v
+	}
+	return out
+}
+
+// inSandbox serves /v1/sandboxes/{id}[/...].
+func (f *Fake) inSandbox(w http.ResponseWriter, r *http.Request) {
+	rest := strings.TrimPrefix(r.URL.EscapedPath(), "/v1/sandboxes/")
+	id, tail, _ := strings.Cut(rest, "/")
+	f.mu.Lock()
+	sb := f.sandboxes[id]
+	status := ""
+	if sb != nil {
+		status, _ = sb.doc["status"].(string)
+	}
+	f.mu.Unlock()
+	if sb == nil {
+		problem(w, http.StatusNotFound, "not-found", "no sandbox "+id)
+		return
+	}
+	ready := func() bool {
+		if status != "ready" {
+			problem(w, http.StatusConflict, "sandbox-state", "sandbox "+id+" is "+status)
+			return false
+		}
+		return true
+	}
+	switch {
+	case tail == "" && r.Method == http.MethodGet:
+		f.mu.Lock()
+		doc := copyDoc(sb.doc)
+		f.mu.Unlock()
+		send(w, http.StatusOK, doc)
+	case tail == "" && r.Method == http.MethodDelete:
+		f.startJob(w, "delete", id, func() (any, error) {
+			f.mu.Lock()
+			defer f.mu.Unlock()
+			delete(f.sandboxes, id)
+			_ = f.Files.Delete(id)
+			doc := copyDoc(sb.doc)
+			doc["status"], doc["teardown"] = "deleted", runOutput("")
+			return doc, nil
+		})
+	case tail == "reset" && r.Method == http.MethodPost:
+		if ready() {
+			f.startJob(w, "reset", id, func() (any, error) { return f.setUp(sb) })
+		}
+	case tail == "probes" && r.Method == http.MethodPost:
+		in, _ := io.ReadAll(r.Body)
+		if ready() {
+			f.startJob(w, "probe", id, func() (any, error) {
+				if f.Probe != nil {
+					return f.Probe(in)
+				}
+				return map[string]any{"passed": true, "results": []any{}, "log": []string{}, "error": nil}, nil
+			})
+		}
+	case tail == "actions" && r.Method == http.MethodPost:
+		if ready() {
+			f.startJob(w, "action", id, func() (any, error) { return runOutput(""), nil })
+		}
+	case tail == "terminal" && r.Method == http.MethodGet:
+		f.terminal(w, r, id)
+	default:
+		f.files(w, r, id, tail)
+	}
 }
 
 func (f *Fake) getJob(w http.ResponseWriter, id string) {
@@ -174,27 +343,16 @@ func (f *Fake) getJob(w http.ResponseWriter, id string) {
 		problem(w, http.StatusNotFound, "not-found", "no job "+id)
 		return
 	}
-	doc := map[string]any{"id": j.ID, "kind": j.Kind, "status": j.result["status"], "log": j.Log,
-		"output": j.result["output"], "problem": j.result["problem"]}
+	doc := map[string]any{"id": j.ID, "kind": j.Kind, "sandbox": j.sandbox(), "status": j.result["status"],
+		"log": j.Log, "output": j.result["output"], "problem": j.result["problem"]}
 	send(w, http.StatusOK, doc)
 }
 
-func (f *Fake) workspaces(w http.ResponseWriter, r *http.Request) {
+// files serves a sandbox's workspace (tail: files[/<path>] or moves).
+func (f *Fake) files(w http.ResponseWriter, r *http.Request, ws, tail string) {
 	ctx := r.Context()
-	rest := strings.TrimPrefix(r.URL.EscapedPath(), "/v1/workspaces/")
-	ws, tail, _ := strings.Cut(rest, "/")
 	var err error
 	switch {
-	case tail == "" && r.Method == http.MethodPut:
-		if err = f.Files.Create(ctx, ws); err == nil {
-			w.WriteHeader(http.StatusCreated)
-			return
-		}
-	case tail == "" && r.Method == http.MethodDelete:
-		if err = f.Files.Delete(ws); err == nil {
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
 	case tail == "files" && r.Method == http.MethodGet:
 		var files []workspace.Entry
 		if files, err = f.Files.List(ctx, ws); err == nil {
@@ -214,7 +372,7 @@ func (f *Fake) workspaces(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	case strings.HasPrefix(tail, "files/"):
-		p := strings.TrimPrefix(r.URL.Path, "/v1/workspaces/"+ws+"/files/")
+		p := strings.TrimPrefix(r.URL.Path, "/v1/sandboxes/"+ws+"/files/")
 		if _, cerr := workspace.CleanPath(p); cerr != nil {
 			problem(w, http.StatusBadRequest, "bad-path", p)
 			return
@@ -257,17 +415,10 @@ func (f *Fake) workspaces(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// terminal is a shell that echoes what is typed (as a tty does), answers `stty size` with the window size and
+// terminal is a sandbox's shell: it echoes what is typed (as a tty does), answers `stty size` with the window size and
 // closes (1000) on `exit`; its banner is the real shell's ("Lab terminal in <dir>").
-func (f *Fake) terminal(w http.ResponseWriter, r *http.Request) {
+func (f *Fake) terminal(w http.ResponseWriter, r *http.Request, ws string) {
 	q := r.URL.Query()
-	ws := q.Get("workspace")
-	if ws != "" {
-		if _, err := f.Files.List(r.Context(), ws); err != nil {
-			problem(w, http.StatusNotFound, "not-found", "no workspace "+ws)
-			return
-		}
-	}
 	cols, rows := q.Get("cols"), q.Get("rows")
 	conn, err := websocket.Accept(w, r, nil)
 	if err != nil {

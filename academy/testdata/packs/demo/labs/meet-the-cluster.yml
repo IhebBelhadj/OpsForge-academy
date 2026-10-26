@@ -19,7 +19,7 @@ steps:
     check:
       probe:
         steps:
-          - run: { cmd: "./opsforge kubectl get nodes" }
+          - run: { cmd: "opsforge kubectl get nodes" }
             name: nodes
         expect:
           nodes.exit: "== 0"

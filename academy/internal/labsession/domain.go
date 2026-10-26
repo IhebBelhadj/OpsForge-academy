@@ -1,8 +1,9 @@
-// Package labsession runs lab attempts (docs/courses/architecture.md, "Platform service: modules"): start runs
-// the lab's setup, each step is checked in order (a probe observes the lab through the toolchain, a quiz or a
-// confirm is answered), hints cost XP, reset sets the lab up again, and finishing or abandoning always runs the
-// teardown and heals the links. One attempt runs per user, and one lab operation at a time on the one lab (they
-// share its links and cluster). Phase 10's rules (its Python server, since removed), on the toolchain contract.
+// Package labsession runs lab attempts (docs/architecture.md, "Platform service: modules"): each attempt gets a
+// sandbox from OpsForge (made from the lab's requirements: its workspace with the lab's files, its namespace, its
+// setup), each step is checked in order (a probe observes the lab in the sandbox, a quiz or a confirm is
+// answered), hints cost XP, reset sets the sandbox up again, and finishing or abandoning deletes it (OpsForge runs
+// the teardown and heals the links when the lab broke some). One attempt runs per user, and one lab operation at a
+// time. Phase 10's rules (its Python server, since removed), on OpsForge's API.
 package labsession
 
 import (
@@ -52,8 +53,8 @@ var (
 	ErrLocked = errors.New("the lab is locked")
 	// ErrLabDown is starting a lab while the lab environment is down.
 	ErrLabDown = errors.New("the lab is down")
-	// ErrUnavailable is a lab that needs another layout than the running one.
-	ErrUnavailable = errors.New("the lab cannot run on this layout")
+	// ErrUnavailable is a lab the running lab cannot host (another layout, a missing node): wraps *lab.UnmetError.
+	ErrUnavailable = errors.New("the running lab cannot host this lab")
 	// ErrToolchain is a toolchain call that failed before anything started.
 	ErrToolchain = errors.New("the lab toolchain failed")
 	// ErrNotRunning is acting on an attempt that is not running (still setting up, or finished).
@@ -94,13 +95,16 @@ type Definition struct {
 	XP          int
 	HintPenalty float64
 	Layout      *string
-	Requires    []string
-	Namespace   bool   // setup creates lab-<attempt>
-	Reset       string // setup (default) or snapshot
-	Files       map[string]string
-	Setup       []json.RawMessage
-	Teardown    []json.RawMessage
-	Steps       []Step
+	Needs       []string // vpn, k3s, monitoring, ci
+	Requires    []string // labs to pass first
+	Namespace   bool     // the sandbox gets a namespace (namespace: auto)
+	// ClusterChanges: the lab changes the cluster outside its namespace (its sandbox then runs alone)
+	ClusterChanges bool
+	Reset          string // setup (default) or snapshot
+	Files          map[string]string
+	Setup          []json.RawMessage
+	Teardown       []json.RawMessage
+	Steps          []Step
 }
 
 // Step is one step with its check and hints.
@@ -123,10 +127,12 @@ func Decode(labEntry, pack catalog.Entry) (Definition, error) {
 	var doc struct {
 		XP       int
 		Layout   *string
+		Needs    []string
 		Requires []string
 		Files    map[string]string
 		Body     struct {
 			Namespace, Reset string
+			ClusterChanges   []string `json:"cluster_changes"`
 			Setup, Teardown  []json.RawMessage
 			Steps            []struct {
 				ID    string
@@ -145,7 +151,8 @@ func Decode(labEntry, pack catalog.Entry) (Definition, error) {
 		return Definition{}, fmt.Errorf("pack %s: %w", pack.Key, err)
 	}
 	d := Definition{ID: labEntry.Key, Hash: labEntry.Hash, XP: doc.XP, HintPenalty: DefaultHintPenalty,
-		Layout: doc.Layout, Requires: doc.Requires, Namespace: doc.Body.Namespace == "auto", Reset: doc.Body.Reset,
+		Layout: doc.Layout, Needs: doc.Needs, Requires: doc.Requires, Namespace: doc.Body.Namespace == "auto",
+		ClusterChanges: len(doc.Body.ClusterChanges) > 0, Reset: doc.Body.Reset,
 		Files: doc.Files, Setup: doc.Body.Setup, Teardown: doc.Body.Teardown}
 	if p.HintPenalty != nil {
 		d.HintPenalty = *p.HintPenalty
@@ -232,8 +239,9 @@ const (
 // Active reports whether the attempt still holds the user's one running lab.
 func (s Status) Active() bool { return s == Setup || s == Running }
 
-// Attempt is one try at a lab. Namespace is "" for a lab without its own; Course and Item say where it was started
-// from ("" from outside a course). Seconds and XP are set when it passes; Error says why its setup failed.
+// Attempt is one try at a lab. Workspace is its sandbox's id at OpsForge (which names its files too); Namespace is
+// the sandbox's ("" for a lab without its own); Course and Item say where it was started from ("" from outside a
+// course). Seconds and XP are set when it passes; Error says why its setup failed.
 type Attempt struct {
 	ID         int64
 	UserID     int64

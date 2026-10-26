@@ -16,7 +16,7 @@ briefing: |
 setup:
   - run:
       cmd: >-
-        ./opsforge kubectl create namespace lab --dry-run=client -o yaml | ./opsforge kubectl apply -f - >/dev/null
+        opsforge kubectl create namespace lab --dry-run=client -o yaml | opsforge kubectl apply -f - >/dev/null
 steps:
   - id: create
     title: Create a deployment with three replicas
@@ -33,7 +33,7 @@ steps:
     check:
       probe:
         steps:
-          - run: { cmd: "./opsforge kubectl -n lab get deploy web -o jsonpath='{.status.readyReplicas}'" }
+          - run: { cmd: "opsforge kubectl -n lab get deploy web -o jsonpath='{.status.readyReplicas}'" }
             name: ready
         expect:
           ready.value: "== 3"
@@ -72,14 +72,14 @@ steps:
         steps:
           - run:
               cmd: >-
-                ./opsforge kubectl -n lab get deploy web
+                opsforge kubectl -n lab get deploy web
                 -o jsonpath='{.spec.template.spec.topologySpreadConstraints[0].topologyKey}'
                 | grep -qx topology.kubernetes.io/region
             name: constraint
           - wait_until:
               cmd: >-
-                ./opsforge kubectl -n lab rollout status deploy web --timeout=2s >/dev/null &&
-                [ "$(./opsforge kubectl -n lab get pods -l app=web --field-selector status.phase=Running
+                opsforge kubectl -n lab rollout status deploy web --timeout=2s >/dev/null &&
+                [ "$(opsforge kubectl -n lab get pods -l app=web --field-selector status.phase=Running
                 -o jsonpath='{range .items[*]}{.spec.nodeName}{"\n"}{end}' | sort -u | wc -l)" -eq 3 ]
               timeout: 90s
             name: regions
@@ -102,6 +102,6 @@ steps:
           The difference between the fullest and the emptiest region may be at most 1, so 2/2/1 is the only split.
           A sixth pod would go to the region with one.
 teardown:
-  - run: { cmd: ./opsforge kubectl delete namespace lab --wait=false --ignore-not-found }
+  - run: { cmd: opsforge kubectl delete namespace lab --wait=false --ignore-not-found }
 debrief: |
   Replicas give you capacity; spreading them over failure domains gives you availability.

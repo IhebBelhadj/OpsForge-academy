@@ -175,15 +175,15 @@ func (r *memRepo) Recover(context.Context) (int64, error) {
 }
 
 // tour is a lab with one check of each kind, its own namespace, setup and teardown, and two hints on its probe.
-const tour = `{"id":"tour","xp":100,"layout":"stretched","requires":[],"files":{"web.yaml":"kind: Pod\n"},
+const tour = `{"id":"tour","xp":100,"layout":"stretched","needs":["k3s"],"requires":[],"files":{"web.yaml":"kind: Pod\n"},
 "body":{"namespace":"auto","setup":[{"run":{"cmd":"setup"}}],"teardown":[{"run":{"cmd":"teardown"}}],
 "steps":[
  {"id":"look","hints":["h1","h2"],"check":{"probe":{"steps":[{"run":{"cmd":"p"},"name":"p"}],"expect":{"p.exit":"== 0"}}}},
  {"id":"why","check":{"quiz":{"question":"?","choices":["a","b"],"answer":1,"explain":"because"}}},
  {"id":"done","check":{"confirm":"Done"}}]}}`
 
-// catalogue serves tour, "next" (requires tour), "far" (multi-cluster), "snap" (resets from a snapshot) and
-// "plain" (no setup, no namespace, one confirm), in a pack with a hint penalty of 0.25.
+// catalogue serves tour, "next" (requires tour), "far" (multi-cluster), "snap" (resets from a snapshot), "plain"
+// (no steps, no namespace, one confirm) and "storm" (it changes the cluster), in a pack with a hint penalty of 0.25.
 type catalogue struct{}
 
 func (catalogue) Entry(_ context.Context, kind catalog.Kind, key string) (catalog.Entry, error) {
@@ -193,6 +193,7 @@ func (catalogue) Entry(_ context.Context, kind catalog.Kind, key string) (catalo
 		"lab/far":   `{"xp":50,"layout":"multi-cluster","body":{"steps":[{"id":"a","check":{"confirm":"ok"}}]}}`,
 		"lab/snap":  `{"xp":50,"body":{"reset":"snapshot","steps":[{"id":"a","check":{"confirm":"ok"}}]}}`,
 		"lab/plain": `{"xp":10,"body":{"steps":[{"id":"a","check":{"confirm":"ok"}}]}}`,
+		"lab/storm": `{"xp":10,"body":{"cluster_changes":["labels a node"],"steps":[{"id":"a","check":{"confirm":"ok"}}]}}`,
 		"pack/p":    `{"id":"p","hint_penalty":0.25}`,
 	}
 	doc, ok := docs[string(kind)+"/"+key]
@@ -202,46 +203,83 @@ func (catalogue) Entry(_ context.Context, kind catalog.Kind, key string) (catalo
 	return catalog.Entry{Kind: kind, Key: key, PackID: "p", Hash: "H-" + key, Doc: json.RawMessage(doc)}, nil
 }
 
-// fakeLab is the LabController: a scripted lab with a call log.
-type fakeLab struct {
-	mu       sync.Mutex
-	state    lab.State
-	stateErr error
-	failRun  map[lab.Phase]string // the run's Error
-	probes   []lab.ProbeResult    // returned in order; passed when empty
-	probeErr error
-	healErr  error
-	calls    []string
+// fakeSandboxes is the Sandboxes port: a stretched lab whose sandboxes are numbered 00000001, ..., with a call log.
+type fakeSandboxes struct {
+	mu        sync.Mutex
+	layout    string
+	refuse    error             // Create's refusal
+	awaitErr  error             // Await's error (a lost job)
+	failSetup string            // the setup's error: the sandbox fails (and is cleaned up)
+	teardown  string            // the teardown's error, when deleted
+	probes    []lab.ProbeResult // returned in order; passed when empty
+	probeErr  error
+	made      int
+	requests  map[string]lab.SandboxRequest
+	gone      map[string]bool
+	calls     []string
 }
 
-func newLab() *fakeLab {
-	stretched := "stretched"
-	return &fakeLab{state: lab.State{Up: true, Layout: &stretched}, failRun: map[lab.Phase]string{}}
+func newSandboxes() *fakeSandboxes {
+	return &fakeSandboxes{layout: "stretched", requests: map[string]lab.SandboxRequest{}, gone: map[string]bool{}}
 }
 
-func (l *fakeLab) log(s string) {
+func (l *fakeSandboxes) log(s string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.calls = append(l.calls, s)
 }
 
-func (l *fakeLab) called() string {
+func (l *fakeSandboxes) called() string {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return strings.Join(l.calls, ", ")
 }
 
-func (l *fakeLab) State(context.Context) (lab.State, error) { return l.state, l.stateErr }
-
-func (l *fakeLab) Run(_ context.Context, req lab.RunRequest) (lab.RunResult, error) {
-	l.log(fmt.Sprintf("%s %d %s", req.Phase, len(req.Steps), req.Namespace))
-	return lab.RunResult{Error: l.failRun[req.Phase]}, nil
-}
-
-func (l *fakeLab) Probe(_ context.Context, req lab.ProbeRequest) (lab.ProbeResult, error) {
-	l.log("probe " + req.Namespace)
+func (l *fakeSandboxes) Create(_ context.Context, req lab.SandboxRequest) (lab.Pending, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	if l.refuse != nil {
+		return lab.Pending{}, l.refuse
+	}
+	if req.Requires.Layout != nil && *req.Requires.Layout != l.layout {
+		return lab.Pending{}, &lab.UnmetError{Unmet: []string{"layout " + *req.Requires.Layout}}
+	}
+	l.made++
+	id := fmt.Sprintf("%08x", l.made)
+	l.requests[id] = req
+	l.calls = append(l.calls, fmt.Sprintf("create %s", id))
+	return lab.Pending{Sandbox: id, Job: "job-" + id}, nil
+}
+
+func (l *fakeSandboxes) sandbox(id string) lab.Sandbox {
+	sb := lab.Sandbox{ID: id, Status: lab.SandboxReady, Setup: &lab.RunResult{}}
+	if l.requests[id].Namespace {
+		ns := "sb-" + id
+		sb.Namespace = &ns
+	}
+	if l.failSetup != "" {
+		sb.Status, sb.Setup.Error, sb.Teardown = lab.SandboxFailed, l.failSetup, &lab.RunResult{}
+	}
+	return sb
+}
+
+func (l *fakeSandboxes) Await(_ context.Context, p lab.Pending) (lab.Sandbox, error) {
+	l.log("await " + p.Sandbox)
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.awaitErr != nil {
+		return lab.Sandbox{}, l.awaitErr
+	}
+	return l.sandbox(p.Sandbox), nil
+}
+
+func (l *fakeSandboxes) Probe(_ context.Context, id string, _ lab.ProbeRequest) (lab.ProbeResult, error) {
+	l.log("probe " + id)
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.gone[id] {
+		return lab.ProbeResult{}, fmt.Errorf("%w: no sandbox %s", lab.ErrGone, id)
+	}
 	if l.probeErr != nil {
 		return lab.ProbeResult{}, l.probeErr
 	}
@@ -254,24 +292,38 @@ func (l *fakeLab) Probe(_ context.Context, req lab.ProbeRequest) (lab.ProbeResul
 	return r, nil
 }
 
-func (l *fakeLab) Heal(context.Context) (bool, error) {
-	l.log("heal")
-	return false, l.healErr
+func (l *fakeSandboxes) Reset(_ context.Context, id string) (lab.Sandbox, error) {
+	l.log("reset " + id)
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.sandbox(id), nil
 }
 
+func (l *fakeSandboxes) Delete(_ context.Context, id string) (lab.Sandbox, error) {
+	l.log("delete " + id)
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.gone[id] {
+		return lab.Sandbox{}, fmt.Errorf("%w: no sandbox %s", lab.ErrGone, id)
+	}
+	l.gone[id] = true
+	return lab.Sandbox{ID: id, Status: lab.SandboxDeleted, Teardown: &lab.RunResult{Error: l.teardown}}, nil
+}
+
+// spaces records the claimed workspaces (and fails claims with err).
 type spaces struct {
 	mu      sync.Mutex
-	created map[string]map[string]string
+	claimed map[string]int64
 	err     error
 }
 
-func (s *spaces) Create(_ context.Context, _ int64, ws string, files map[string]string) error {
+func (s *spaces) Claim(_ context.Context, user int64, ws string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.err != nil {
 		return s.err
 	}
-	s.created[ws] = files
+	s.claimed[ws] = user
 	return nil
 }
 
@@ -329,7 +381,7 @@ func (nobody) Send(int64, platform.Message) {}
 type fixture struct {
 	svc    *labsession.Service
 	repo   *memRepo
-	lab    *fakeLab
+	lab    *fakeSandboxes
 	spaces *spaces
 	ops    *operations.Service
 	bus    *bus
@@ -337,7 +389,7 @@ type fixture struct {
 }
 
 func newFixture() *fixture {
-	f := &fixture{repo: newRepo(), lab: newLab(), spaces: &spaces{created: map[string]map[string]string{}}, bus: &bus{},
+	f := &fixture{repo: newRepo(), lab: newSandboxes(), spaces: &spaces{claimed: map[string]int64{}}, bus: &bus{},
 		clock: &clock{now: t0}}
 	f.ops = operations.NewService(&opsRepo{ops: map[string]operations.Operation{}}, nobody{}, f.clock,
 		slog.New(slog.NewTextHandler(io.Discard, nil)))
@@ -362,7 +414,7 @@ func (f *fixture) outcome(t *testing.T, op operations.Operation) labsession.Outc
 	return out
 }
 
-// start starts tour for user 1 and waits for its setup.
+// start starts a lab for user 1 and waits for its setup.
 func (f *fixture) start(t *testing.T, labID string) (labsession.Attempt, labsession.Outcome) {
 	t.Helper()
 	a, op, err := f.svc.Start(context.Background(), 1, labID, "k8s", "item")

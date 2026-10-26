@@ -80,7 +80,7 @@ func TestCourseHasItsSectionsInOrder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.Hash != "ad7ef344f4bcb582" || len(c.Outcomes) != 2 || len(c.Sections) != 1 || c.Sections[0].Title != "Pods" {
+	if c.Hash != "72236239ee5cafca" || len(c.Outcomes) != 2 || len(c.Sections) != 1 || c.Sections[0].Title != "Pods" {
 		t.Fatalf("%+v", c)
 	}
 	var types []string

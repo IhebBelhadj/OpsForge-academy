@@ -286,7 +286,7 @@ func TestContentHashesArePythons(t *testing.T) {
 		hashes[obj(l)["id"].(string)] = obj(l)["content_hash"]
 	}
 	// The Phase 10 hash of two core labs at the time of the port: update them when the lab files change
-	if hashes["losing-a-site"] != "0211d33e7648f0f6" || hashes["private-networks"] != "1562687b5fbd7b74" {
+	if hashes["losing-a-site"] != "58dd84cc456f339a" || hashes["private-networks"] != "1562687b5fbd7b74" {
 		t.Fatalf("core lab hashes %v", hashes)
 	}
 }

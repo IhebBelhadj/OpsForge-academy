@@ -627,7 +627,7 @@ export interface paths {
         put?: never;
         /**
          * Start a shell for a browser terminal
-         * @description Starts an interactive shell on a pty and returns its session id; the client then connects a WebSocket to /ws/terminal/{session} (binary frames out, JSON frames in, see internal/httpapi/terminal.go). A session survives 60 s without a client and replays its last 64 KiB of output on reconnect.
+         * @description Starts an interactive shell on a pty in a lab attempt's workspace (its sandbox on the lab host, where the lab's namespace is kubectl's default) and returns its session id; the client then connects a WebSocket to /ws/terminal/{session} (binary frames out, JSON frames in, see internal/httpapi/terminal.go). A session survives 60 s without a client and replays its last 64 KiB of output on reconnect.
          */
         post: operations["openTerminal"];
         delete?: never;
@@ -693,8 +693,8 @@ export interface components {
             cols: number;
             /** @default 24 */
             rows: number;
-            /** @description Start the shell in this workspace (a lab attempt's) instead of the repository */
-            workspace?: string;
+            /** @description The lab attempt's workspace (its sandbox) to start the shell in */
+            workspace: string;
         };
         TerminalSession: {
             /** @description Opaque session id for /ws/terminal/{session} */
@@ -2401,7 +2401,7 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody?: {
+        requestBody: {
             content: {
                 "application/json": components["schemas"]["TerminalSize"];
             };
@@ -2416,7 +2416,7 @@ export interface operations {
                     "application/json": components["schemas"]["TerminalSession"];
                 };
             };
-            /** @description The size is out of range. */
+            /** @description The size is out of range, or no workspace is named. */
             400: {
                 headers: {
                     [name: string]: unknown;

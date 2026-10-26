@@ -34,8 +34,7 @@ const (
 	ReasonClosed   = "closed"   // the platform is shutting down
 )
 
-// Spec is the shell to start: on the lab host, in a workspace (the learner's files) or, without one, in
-// OpsForge's checkout.
+// Spec is the shell to start: on the lab host, in a workspace (a sandbox's: the learner's files).
 type Spec struct {
 	Workspace string
 	Cols      uint16

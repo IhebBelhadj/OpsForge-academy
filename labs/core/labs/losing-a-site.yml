@@ -24,7 +24,7 @@ steps:
     check:
       probe:
         steps:
-          - run: { cmd: "./opsforge link a-c | grep -q 'loss=100%' && ./opsforge link b-c | grep -q 'loss=100%'" }
+          - run: { cmd: "opsforge link a-c | grep -q 'loss=100%' && opsforge link b-c | grep -q 'loss=100%'" }
             name: cut
         expect:
           cut.exit: "== 0"
@@ -42,7 +42,7 @@ steps:
         steps:
           - wait_until:
               cmd: >-
-                ./opsforge kubectl get node ${node:c}
+                opsforge kubectl get node ${node:c}
                 -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' | grep -qx Unknown
               timeout: 120s
             name: unknown
@@ -69,7 +69,7 @@ steps:
         steps:
           - wait_until:
               cmd: >-
-                [ "$(./opsforge kubectl -n demo get pods -l app=whoami --field-selector
+                [ "$(opsforge kubectl -n demo get pods -l app=whoami --field-selector
                 spec.nodeName!=${node:c},status.phase=Running -o name | wc -l)" -ge 3 ]
               timeout: 180s
             name: moved
@@ -104,7 +104,7 @@ steps:
         steps:
           - wait_until:
               cmd: >-
-                ./opsforge kubectl get node ${node:c}
+                opsforge kubectl get node ${node:c}
                 -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' | grep -qx True
               timeout: 120s
             name: ready
@@ -117,14 +117,14 @@ teardown:
   - run:
       cmd: |
         q='{range .items[?(@.spec.template.spec.topologySpreadConstraints)]}{.metadata.namespace}/{.metadata.name}{" "}'
-        spread=$(./opsforge kubectl get deploy -A -o jsonpath="$q{end}")
+        spread=$(opsforge kubectl get deploy -A -o jsonpath="$q{end}")
         for d in $spread; do
           case $d in kube-system/*) continue ;; esac
-          ./opsforge kubectl -n "${d%/*}" rollout restart "deploy/${d#*/}" >/dev/null
+          opsforge kubectl -n "${d%/*}" rollout restart "deploy/${d#*/}" >/dev/null
         done
         for d in $spread; do
           case $d in kube-system/*) continue ;; esac
-          ./opsforge kubectl -n "${d%/*}" rollout status "deploy/${d#*/}" --timeout=180s
+          opsforge kubectl -n "${d%/*}" rollout status "deploy/${d#*/}" --timeout=180s
         done
       timeout: 400s
 debrief: |

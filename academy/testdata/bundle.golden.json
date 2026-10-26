@@ -27,7 +27,7 @@
       ],
       "challenges": [
         {
-          "content_hash": "f8ca6f717436e90f",
+          "content_hash": "40ad70fc8ed45ba6",
           "course": "k8s-intro",
           "difficulty": "easy",
           "files": [
@@ -60,7 +60,7 @@
                   {
                     "name": "phase",
                     "run": {
-                      "cmd": "./opsforge kubectl -n ${ns} get pod web -o jsonpath='{.status.phase}'"
+                      "cmd": "opsforge kubectl -n ${ns} get pod web -o jsonpath='{.status.phase}'"
                     }
                   }
                 ]
@@ -72,11 +72,11 @@
           "xp": 50
         }
       ],
-      "content_hash": "dacc2de66d3478fe",
+      "content_hash": "16d8173167137da3",
       "courses": [
         {
           "badge": "intro-done",
-          "content_hash": "ad7ef344f4bcb582",
+          "content_hash": "72236239ee5cafca",
           "description": "A **tiny** course.\n",
           "id": "k8s-intro",
           "layout": null,
@@ -114,7 +114,7 @@
                   "type": "quiz"
                 },
                 {
-                  "content_hash": "4a96800a992f8941",
+                  "content_hash": "80ddf88a45f08cbd",
                   "id": "meet-the-cluster",
                   "minutes": 10,
                   "ref": "meet-the-cluster",
@@ -122,7 +122,7 @@
                   "type": "lab"
                 },
                 {
-                  "content_hash": "f8ca6f717436e90f",
+                  "content_hash": "40ad70fc8ed45ba6",
                   "id": "first-pod",
                   "minutes": 10,
                   "ref": "first-pod",
@@ -169,7 +169,7 @@
                       {
                         "name": "nodes",
                         "run": {
-                          "cmd": "./opsforge kubectl get nodes"
+                          "cmd": "opsforge kubectl get nodes"
                         }
                       }
                     ]
@@ -195,7 +195,7 @@
             "title": "Meet the cluster",
             "xp": 100
           },
-          "content_hash": "4a96800a992f8941",
+          "content_hash": "80ddf88a45f08cbd",
           "files": {
             "hello.yaml": "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: hello\ndata:\n  greeting: hi\n"
           },

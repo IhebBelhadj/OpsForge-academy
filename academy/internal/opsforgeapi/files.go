@@ -13,8 +13,9 @@ import (
 	"github.com/IhebBelhadj/opsforge-academy/academy/internal/workspace"
 )
 
-// Files is the workspace module's FileStore on OpsForge: the learners' trees live on the lab host, where their
-// terminals run (`/v1/workspaces/...`). OpsForge confines paths to the tree and caps sizes too.
+// Files is the workspace module's FileStore on OpsForge: a workspace is a sandbox's (its id), on the lab host where
+// its steps and terminals run (`/v1/sandboxes/{id}/files/...`). OpsForge confines paths to the tree and caps sizes
+// too; the files go with the sandbox.
 type Files struct {
 	c *Client
 }
@@ -25,7 +26,7 @@ var _ workspace.FileStore = Files{}
 func (c *Client) Files() Files { return Files{c: c} }
 
 func (f Files) path(ws string, file ...string) string {
-	p := "/v1/workspaces/" + url.PathEscape(ws)
+	p := "/v1/sandboxes/" + url.PathEscape(ws)
 	if len(file) > 0 {
 		segs := strings.Split(file[0], "/")
 		for i, s := range segs {
@@ -43,7 +44,7 @@ func mapErr(err error) error {
 		return err
 	}
 	switch {
-	case p.Status == http.StatusNotFound:
+	case p.Status == http.StatusNotFound, p.Slug() == "sandbox-state": // gone, or being deleted
 		return fmt.Errorf("%w: %s", workspace.ErrNotFound, p.Detail)
 	case p.Status == http.StatusConflict:
 		return fmt.Errorf("%w: %s", workspace.ErrExists, p.Detail)
@@ -68,11 +69,6 @@ func (f Files) send(ctx context.Context, method, path string, body []byte, want 
 		return mapErr(err)
 	}
 	return resp.Body.Close()
-}
-
-// Create makes an empty tree; ErrExists if there is one.
-func (f Files) Create(ctx context.Context, ws string) error {
-	return f.send(ctx, http.MethodPut, f.path(ws), nil, http.StatusCreated)
 }
 
 // List is the tree's regular files, by path.

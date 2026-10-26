@@ -126,7 +126,7 @@ Origin), and Academy's terminal WebSockets are proxied to OpsForge's.
 | `GET /v1/version` | – | `{contract, minor, opsforge}` (no token needed) |
 | `GET /v1/state` | – | lab up, layout, sites, links (live/desired/condition), nodes, fault, `placeholders` (`${node:a}` → value) |
 | `POST /v1/steps/validate` | `{sets: [{steps, expect?, faults?}]}` | `{errors: [{set, message}]}` (the compiler checks every pack's steps in one call) |
-| `POST /v1/sandboxes` → job | `{kind: lab\|challenge, label, requires: {layout?, needs?, faults?, cluster_changes?}, files, setup, teardown, expires_after?}` | the sandbox: `{id, status, namespace, workspace, layout, placeholders (+ `${ns}`), setup: {metrics, log, error}, expires_at}`; 409 `/problems/unmet-requirements` when the running lab cannot host it, 409 `/problems/lab-busy` while another sandbox with faults exists |
+| `POST /v1/sandboxes` → job | `{kind: lab\|challenge, label, requires: {layout?, needs?, faults?, cluster_changes?}, namespace?, files?, setup?, teardown?, expires_after?}` | the job's `sandbox` is its id from the 202 on; its output the sandbox: `{id, kind, label, status: ready\|failed, namespace, layout, placeholders (+ `${ns}`), requires, setup, teardown, created_at, expires_at}`; 409 `lab-down`, `unmet-requirements` (with `unmet`), `lab-busy` (a sandbox with faults runs alone) |
 | `GET /v1/sandboxes[/{id}]` | – | sandboxes still alive (Academy's attempts match them by id after a restart) |
 | `/v1/sandboxes/{id}/files/...` | file bytes, `moveInput` | the workspace tree (1 MiB per file, 10 MiB per tree, confined) |
 | `GET /v1/sandboxes/{id}/terminal` | WebSocket `{t:"i",d}`, `{t:"r",cols,rows}` | bash on the lab host in the workspace, `kubectl` defaulting to the sandbox's namespace |
@@ -137,16 +137,17 @@ Origin), and Academy's terminal WebSockets are proxied to OpsForge's.
 | `POST /v1/heal` → job | – | `{healed}` (the lab's owner's escape hatch) |
 | `GET /v1/jobs/{id}?wait=<s>` | – | `{id, kind, status, log, output, problem}` |
 
-- Sandboxes are planned (OpsForge's PLAN.md Phase 11 split step 7): they replace the loose `/v1/runs`, `/v1/probes`,
-  `/v1/workspaces` and `/v1/terminal` with a `namespace` Academy chose. Later minors: `apply` (`{manifest,
-  dry_run: server|none}` in a sandbox, for challenges' Run), `openapi` (`{cluster}`, for `schemas`),
-  `snapshot-restore` (`reset: snapshot` labs).
-- **Requirements come from the course**: a section's `layout` and `needs`, a lab's `namespace`, `files`,
-  `cluster_changes` and whether its setup uses faults. OpsForge decides whether the running lab can host them;
-  Academy shows the refusal (the course page also checks `state` ahead, for display).
-- **OpsForge owns cleanup**: the teardown is stored with the sandbox (`.opsforge/sandboxes/`), runs on delete even
-  after a failed setup, survives an API restart, and an idle sandbox expires. Academy deletes the sandbox when an
-  attempt ends and, at start, deletes those that no running attempt owns.
+- Sandboxes (split step 7, done 2026-10-26) replaced the loose `/v1/runs`, `/v1/probes`, `/v1/workspaces` and
+  `/v1/terminal` with a `namespace` Academy chose. Later minors: `apply` (`{manifest, dry_run: server|none}` in a
+  sandbox, for challenges' Run), `openapi` (`{cluster}`, for `schemas`), `snapshot-restore` (`reset: snapshot` labs).
+- **Requirements come from the course**: a lab's `layout`, `needs`, `namespace: auto`, `files` and
+  `cluster_changes`; every lab's sandbox requires `faults` (the learner's terminal can break links, so OpsForge heals
+  on delete, and the sandbox runs alone). OpsForge decides whether the running lab can host them (409
+  `unmet-requirements` with the list); Academy shows the refusal (`/problems/lab-unavailable` with it).
+- **OpsForge owns cleanup**: the teardown is stored with the sandbox (`.opsforge/sandboxes/`), runs at once after a
+  failed setup and on delete, survives an API restart, and an idle sandbox expires (a day). Academy deletes the
+  sandbox when an attempt passes or is abandoned; a sandbox made for an attempt that could not be recorded is
+  deleted at once; one Academy lost otherwise expires (Academy does not sweep: OpsForge may serve other clients).
 - A step that cannot run is `error` in the result (the check failed), not a problem document (the call failed).
 - Placeholders (`${node:c}`, `${ns}`, ...): the bundle keeps texts raw. For display, `labstate` resolves them with the
   sandbox's `placeholders` (or `state`'s outside an attempt), computed by OpsForge's `scenario.substitute` itself, so

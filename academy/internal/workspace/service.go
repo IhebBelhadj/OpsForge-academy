@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sort"
 	"unicode/utf8"
 
 	"github.com/IhebBelhadj/opsforge-academy/academy/internal/platform"
@@ -22,39 +21,10 @@ func NewService(files FileStore, repo Repo, clock platform.Clock) *Service {
 	return &Service{files: files, repo: repo, clock: clock}
 }
 
-// Create makes user's workspace ws holding files (path → content).
-func (s *Service) Create(ctx context.Context, user int64, ws string, files map[string]string) error {
+// Claim records user as the owner of workspace ws: a sandbox's, which OpsForge made with its first files.
+func (s *Service) Claim(ctx context.Context, user int64, ws string) error {
 	if !ValidID(ws) {
 		return fmt.Errorf("workspace %q: %w", ws, ErrBadPath)
-	}
-	var total int64
-	clean := make(map[string]string, len(files))
-	for p, content := range files {
-		c, err := CleanPath(p)
-		if err != nil {
-			return fmt.Errorf("file %q: %w", p, err)
-		}
-		if len(content) > MaxFile {
-			return fmt.Errorf("file %q: %w", p, ErrTooLarge)
-		}
-		total += int64(len(content))
-		clean[c] = content
-	}
-	if total > MaxTotal {
-		return ErrTooLarge
-	}
-	if err := s.files.Create(ctx, ws); err != nil {
-		return err
-	}
-	paths := make([]string, 0, len(clean))
-	for p := range clean {
-		paths = append(paths, p)
-	}
-	sort.Strings(paths)
-	for _, p := range paths {
-		if err := s.files.Write(ctx, ws, p, []byte(clean[p])); err != nil {
-			return err
-		}
 	}
 	return s.repo.Create(ctx, ws, user, s.clock.Now())
 }

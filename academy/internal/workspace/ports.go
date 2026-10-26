@@ -5,11 +5,10 @@ import (
 	"time"
 )
 
-// FileStore holds the workspaces' trees (on the lab host: opsforgeapi.Files); paths are already CleanPath'd, but a
-// store must still refuse to leave a tree (a symlink made in the terminal).
+// FileStore holds the workspaces' trees (on the lab host, a sandbox's: opsforgeapi.Files, which made them with
+// their first files); paths are already CleanPath'd, but a store must still refuse to leave a tree (a symlink made
+// in the terminal).
 type FileStore interface {
-	// Create makes an empty tree; ErrExists if there is one.
-	Create(ctx context.Context, ws string) error
 	// List is the tree's regular files, by path.
 	List(ctx context.Context, ws string) ([]Entry, error)
 	// Read returns a file's content; ErrNotFound if there is none.

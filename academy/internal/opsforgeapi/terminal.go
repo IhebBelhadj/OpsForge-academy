@@ -16,8 +16,9 @@ import (
 	"github.com/IhebBelhadj/opsforge-academy/academy/internal/terminal"
 )
 
-// Shells is the terminal module's Spawner on OpsForge: each shell is a WebSocket to `GET /v1/terminal` (bash on
-// a pty on the lab host, started in the workspace). Sessions, linger and replay stay the terminal module's.
+// Shells is the terminal module's Spawner on OpsForge: each shell is a WebSocket to a sandbox's terminal
+// (`GET /v1/sandboxes/{id}/terminal`: bash on a pty on the lab host, in its workspace, its namespace as
+// `opsforge kubectl`'s default). Sessions, linger and replay stay the terminal module's.
 type Shells struct {
 	c *Client
 }
@@ -27,16 +28,15 @@ var _ terminal.Spawner = Shells{}
 // Shells returns the terminal spawner.
 func (c *Client) Shells() Shells { return Shells{c: c} }
 
-// Spawn opens a shell on the lab host.
+// Spawn opens a shell in the sandbox whose workspace spec names.
 func (s Shells) Spawn(spec terminal.Spec) (terminal.Pty, error) {
+	if spec.Workspace == "" {
+		return nil, ErrNoWorkspace
+	}
 	u := *s.c.base
 	u.Scheme = map[string]string{"http": "ws", "https": "wss"}[u.Scheme]
-	u.Path += "/v1/terminal"
-	q := url.Values{"cols": {strconv.Itoa(int(spec.Cols))}, "rows": {strconv.Itoa(int(spec.Rows))}}
-	if spec.Workspace != "" {
-		q.Set("workspace", spec.Workspace)
-	}
-	u.RawQuery = q.Encode()
+	u.Path += sandboxPath(spec.Workspace, "terminal")
+	u.RawQuery = url.Values{"cols": {strconv.Itoa(int(spec.Cols))}, "rows": {strconv.Itoa(int(spec.Rows))}}.Encode()
 	token, err := s.c.token()
 	if err != nil {
 		return nil, err
@@ -50,7 +50,7 @@ func (s Shells) Spawn(spec terminal.Spec) (terminal.Pty, error) {
 	if err != nil {
 		if resp != nil && resp.StatusCode != http.StatusSwitchingProtocols {
 			defer func() { _ = resp.Body.Close() }()
-			return nil, mapErr(failure(http.MethodGet, "/v1/terminal", resp))
+			return nil, mapErr(failure(http.MethodGet, u.Path, resp))
 		}
 		return nil, fmt.Errorf("opsforge terminal: %w", err)
 	}

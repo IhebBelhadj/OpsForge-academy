@@ -144,8 +144,11 @@ func TestChangesNeedTheSessionsCSRFToken(t *testing.T) {
 			t.Fatalf("%s token: %d %s", name, rec.Code, rec.Body)
 		}
 	}
-	if resp := b.send(t, http.MethodPost, "/api/v1/terminals", "", nil); resp.StatusCode != http.StatusCreated {
-		t.Fatalf("with the token: %d", resp.StatusCode)
+	// With the token the guard lets it through: the handler answers (no workspace named: 400)
+	rec := record(b.send(t, http.MethodPost, "/api/v1/terminals", "{}", nil))
+	checkContract(t, "POST", "/api/v1/terminals", rec)
+	if rec.Code != http.StatusBadRequest || decode[httpapi.Problem](t, rec.Body.Bytes()).Type != "/problems/bad-request" {
+		t.Fatalf("with the token: %d %s", rec.Code, rec.Body)
 	}
 }
 

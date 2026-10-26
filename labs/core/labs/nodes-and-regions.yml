@@ -39,7 +39,7 @@ steps:
         steps:
           - run:
               cmd: >-
-                ./opsforge kubectl get node ${node:c} -o jsonpath='{.metadata.labels.lab\.opsforge/tier}'
+                opsforge kubectl get node ${node:c} -o jsonpath='{.metadata.labels.lab\.opsforge/tier}'
                 | grep -qx edge
             name: label
         expect:
@@ -68,6 +68,6 @@ steps:
           The constraint forbids any region from having more than one pod more than another. The scheduler only
           applies it when placing pods, so it never moves pods that are already running.
 teardown:
-  - run: { cmd: "./opsforge kubectl label node ${node:c} lab.opsforge/tier- >/dev/null 2>&1 || true" }
+  - run: { cmd: "opsforge kubectl label node ${node:c} lab.opsforge/tier- >/dev/null 2>&1 || true" }
 debrief: |
   Labels are how Kubernetes knows about the world. Topology labels make "region" something the scheduler can use.
