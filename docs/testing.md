@@ -26,14 +26,14 @@ Red → green → refactor, with refactors only on green. Bugs start as a failin
 |---|---|---|---|
 | Domain and services (Go) | `go test`, table-driven, hand-written fakes (no mocking framework), `testing/synctest` for timers | All business rules: unlocks, staleness, scoring, hint costs, one running lab, verdicts, retroactive badges, import idempotency | every commit, `-race`, < 10 s |
 | Repositories (Go) | real SQLite in `t.TempDir()`, goose migrations applied | Queries, constraints (partial unique index), migration up from every released version | every commit |
-| Toolchain adapter (Go) | a fake `opsforge` executable (test binary re-exec) emitting fixture JSON, slow and failing variants | Contract parsing, timeouts, cancellation, version mismatch, stderr problems | every commit |
+| OpsForge adapter (Go) | `opsforgefake` (the API in memory) and `httptest` servers answering fixture documents, TLS with a self-signed certificate; `TestReal*` against a real `opsforge api serve` named by `ACADEMY_OPSFORGE_URL`/`_TOKEN_FILE`/`_CA_FILE` (any machine; skipped without) | Contract parsing, jobs and lost jobs, timeouts, version mismatch, problems, workspaces, terminals | every commit (real API: CI and nightly against OpsForge master) |
 | HTTP (Go) | `httptest` + the real router + services with fake ports; `kin-openapi` response validation | Every endpoint and status code against the spec; Host/Origin/CSRF middleware; problem+json mapping; SSE framing; WebSocket upgrade and pty echo | every commit |
 | Toolchain (Python) | pytest (existing 149 tests) + new tests for `opsforge api` commands | Compile (schema, cross-references, hashes, determinism), probe early stop, apply diagnostics; golden bundle fixture shared with the Go import tests | every commit |
-| Shared fixtures | `testdata/bundle.golden.json`, `testdata/state.*.json` | The same documents feed Python (producer) and Go (consumer) tests: contract drift fails both | every commit |
+| Shared fixtures | `academy/contract/golden/` (pinned from OpsForge's repository, written by its pytest) | OpsForge's documents decode into Academy's types: contract drift fails at `make contract-update` | every commit |
 | Web components | Vitest, Testing Library, MSW (handlers generated from OpenAPI), `vitest-axe` | Each screen state; quiz navigator logic; editor workspace model (dirty, external change, save conflict) with Monaco mocked; terminal hook with a fake WebSocket | every commit |
 | End to end | Playwright against `academy serve --lab=fake` (fake `LabController`, seeded bundle), Chromium + Firefox, desktop and 390 px | Journeys: start a course → read → pass a quiz → pass a lab → accept a challenge → completion badge; keyboard-only run; reconnecting terminal | every PR |
 | Visual | Playwright screenshots of key screens, light and dark | Unintended layout changes | every PR (reviewed diffs) |
-| Live acceptance | `opsforge academy check <lab|challenge>` on the running lab; a scripted run of a whole course | Lab texts, timings and checks are true on the real cluster; teardown leaves `verify` green | per lab/challenge before merge; full run per milestone |
+| Live acceptance | the lab or challenge played in Academy against the running lab's API; a scripted run of a whole course | Lab texts, timings and checks are true on the real cluster; teardown leaves `verify` green | per lab/challenge before merge; full run per milestone |
 
 ## Fakes, not mocks
 

@@ -3,6 +3,7 @@ package opsforgeapi_test
 import (
 	"context"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"io"
 	"net/http"
@@ -100,6 +101,30 @@ func TestReadiness(t *testing.T) {
 		time.Second)
 	if err := missing.Ready(context.Background()); err == nil || !strings.Contains(err.Error(), "opsforge-token-file") {
 		t.Fatalf("missing token file: %v", err)
+	}
+}
+
+// An OpsForge on another machine serves a self-signed certificate: refused until Academy trusts it (--opsforge-ca-file).
+func TestSelfSignedOpsForge(t *testing.T) {
+	srv := httptest.NewTLSServer(opsforgefake.New("token"))
+	t.Cleanup(srv.Close)
+	c := client(t, srv.URL, "token")
+	if err := c.Ready(context.Background()); err == nil || !strings.Contains(err.Error(), "certificate") {
+		t.Fatalf("untrusted certificate: %v", err)
+	}
+	ca := filepath.Join(t.TempDir(), "lab.pem")
+	cert := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: srv.Certificate().Raw})
+	if err := os.WriteFile(ca, cert, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.TrustCA(ca); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Ready(context.Background()); err != nil {
+		t.Fatalf("trusted: %v", err)
+	}
+	if err := c.TrustCA(filepath.Join(t.TempDir(), "none.pem")); err == nil {
+		t.Fatal("missing ca: no error")
 	}
 }
 

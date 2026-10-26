@@ -23,6 +23,7 @@ type Config struct {
 	DB                string        // SQLite database
 	OpsForgeURL       string        // OpsForge's API (`opsforge api serve`)
 	OpsForgeTokenFile string        // a copy of OpsForge's .opsforge/api-token
+	OpsForgeCAFile    string        // PEM certificates to trust for OpsForge's https (a self-signed one); optional
 	OpsForgeTimeout   time.Duration // default limit for one call to OpsForge
 	LabTimeout        time.Duration // limit for lab work (setup, a check, teardown: a job)
 	ShutdownTimeout   time.Duration // how long running requests get on SIGTERM
@@ -79,6 +80,9 @@ func load(command string, args []string, getenv func(string) string) (Config, Co
 	tokenFile := fs.String("opsforge-token-file", getenv("ACADEMY_OPSFORGE_TOKEN_FILE"),
 		"OpsForge's API token, a copy of its .opsforge/api-token (ACADEMY_OPSFORGE_TOKEN_FILE, default "+
 			"<data>/opsforge-token)")
+	caFile := fs.String("opsforge-ca-file", getenv("ACADEMY_OPSFORGE_CA_FILE"),
+		"PEM certificate(s) to trust for an https OpsForge URL, e.g. its self-signed --tls-cert "+
+			"(ACADEMY_OPSFORGE_CA_FILE)")
 	legacyDB := fs.String("legacy-db", getenv("ACADEMY_LEGACY_DB"),
 		"Phase 10 database for migrate-legacy (ACADEMY_LEGACY_DB)")
 	opsforgeTimeout := fs.Duration("opsforge-timeout", 30*time.Second, "limit for one call to OpsForge")
@@ -103,7 +107,7 @@ func load(command string, args []string, getenv func(string) string) (Config, Co
 	}{
 		{"data", *data, &cfg.Data, ""}, {"content", *content, &cfg.Content, ""},
 		{"db", *db, &cfg.DB, "academy.db"}, {"opsforge-token-file", *tokenFile, &cfg.OpsForgeTokenFile, "opsforge-token"},
-		{"legacy-db", *legacyDB, &cfg.LegacyDB, ""},
+		{"opsforge-ca-file", *caFile, &cfg.OpsForgeCAFile, ""}, {"legacy-db", *legacyDB, &cfg.LegacyDB, ""},
 	} {
 		in := f.in
 		if in == "" && f.fallback != "" {
@@ -148,6 +152,9 @@ func (c Config) validate() error {
 	case u.Scheme == "http" && !loopback(u.Hostname()):
 		errs = append(errs, fmt.Errorf("opsforge-url %q: the token would cross the network in clear: use https "+
 			"(opsforge api serve --tls-cert) or an SSH tunnel to a loopback address", c.OpsForgeURL))
+	}
+	if c.OpsForgeCAFile != "" && err == nil && u.Scheme != "https" {
+		errs = append(errs, fmt.Errorf("opsforge-ca-file: only for an https opsforge-url"))
 	}
 	if c.OpsForgeTimeout <= 0 {
 		errs = append(errs, errors.New("opsforge-timeout must be positive"))

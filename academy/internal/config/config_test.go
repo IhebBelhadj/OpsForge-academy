@@ -36,13 +36,14 @@ func TestFlagsWinOverEnvironment(t *testing.T) {
 		[]string{"--addr", "localhost:9000", "--db", "/tmp/a.db", "--log-level", "debug", "--opsforge-url",
 			"https://lab.example:8091"},
 		env(map[string]string{"ACADEMY_DATA": "/d", "ACADEMY_ADDR": "127.0.0.1:1", "ACADEMY_LOG_LEVEL": "warn",
-			"ACADEMY_OPSFORGE_TOKEN_FILE": "/secrets/token"}),
+			"ACADEMY_OPSFORGE_TOKEN_FILE": "/secrets/token", "ACADEMY_OPSFORGE_CA_FILE": "/secrets/lab.pem"}),
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if cfg.Addr != "localhost:9000" || cfg.DB != "/tmp/a.db" || cfg.LogLevel != slog.LevelDebug ||
-		cfg.OpsForgeURL != "https://lab.example:8091" || cfg.OpsForgeTokenFile != "/secrets/token" {
+		cfg.OpsForgeURL != "https://lab.example:8091" || cfg.OpsForgeTokenFile != "/secrets/token" ||
+		cfg.OpsForgeCAFile != "/secrets/lab.pem" {
 		t.Fatalf("got %+v", cfg)
 	}
 }
@@ -61,6 +62,7 @@ func TestInvalidConfigurationIsRejected(t *testing.T) {
 		"positional args":     {[]string{"extra"}, "unexpected"},
 		"not a url":           {[]string{"--opsforge-url", "lab:8091"}, "opsforge-url"},
 		"token in clear":      {[]string{"--opsforge-url", "http://10.0.0.5:8091"}, "https"},
+		"ca without https":    {[]string{"--opsforge-ca-file", "/lab.pem"}, "opsforge-ca-file"},
 		"removed root":        {[]string{"--root", "."}, "root"},
 		"removed toolchain":   {[]string{"--toolchain", "./opsforge"}, "toolchain"},
 		"removed workspaces":  {[]string{"--workspaces", "/w"}, "workspaces"},

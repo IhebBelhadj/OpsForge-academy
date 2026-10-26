@@ -8,6 +8,8 @@ package opsforgeapi
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -117,6 +119,26 @@ func New(baseURL string, token Token, timeout, labTimeout time.Duration) (*Clien
 	}
 	return &Client{base: u, token: token, http: &http.Client{}, Timeout: timeout, LabTimeout: labTimeout,
 		Wait: 30 * time.Second}, nil
+}
+
+// TrustCA makes the client (its calls and its terminals) also trust the certificates in the PEM file caFile: an
+// OpsForge on another machine serving a self-signed certificate (`opsforge api serve --tls-cert`).
+func (c *Client) TrustCA(caFile string) error {
+	data, err := os.ReadFile(caFile) //nolint:gosec // the path is configuration
+	if err != nil {
+		return fmt.Errorf("opsforge ca: %w", err)
+	}
+	pool, err := x509.SystemCertPool()
+	if err != nil {
+		pool = x509.NewCertPool()
+	}
+	if !pool.AppendCertsFromPEM(data) {
+		return fmt.Errorf("opsforge ca %s: no PEM certificate", caFile)
+	}
+	t := http.DefaultTransport.(*http.Transport).Clone()
+	t.TLSClientConfig = &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}
+	c.http = &http.Client{Transport: t}
+	return nil
 }
 
 // URL is the base URL (for messages).

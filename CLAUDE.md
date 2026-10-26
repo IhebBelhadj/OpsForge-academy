@@ -1,9 +1,10 @@
 # OpsForge Academy
 
 A learning platform (courses of lectures, quizzes, guided labs and LeetCode-style challenges, with an editor and a
-terminal) built on **OpsForge**, the multi-site WAN lab, which is another repository (`../opsforge` on this host).
-Academy is standalone: from OpsForge it needs only somewhere to run what the learner does, through OpsForge's HTTP API
-(a URL and a token), never its checkout or its files. Read `docs/README.md` and `docs/implementation.md` before
+terminal) built on **OpsForge**, the multi-site WAN lab, which is another repository (checked out at `../opsforge` on
+this host, but nothing here may rely on that). Academy is standalone: from OpsForge it needs only somewhere to run
+what the learner does, through OpsForge's HTTP API (a URL, a token and maybe a CA certificate), never its checkout or
+its files; the two may run on different machines. Read `docs/README.md` and `docs/implementation.md` before
 structural changes (architecture, content model, milestones, tests first).
 
 **Now** (2026-10-26): moved out of OpsForge (its `docs/PLAN.md` Phase 11 holds the history up to here: M0, spike S6,
@@ -20,7 +21,8 @@ parity). Tags: `v0.1.0` once Academy runs on OpsForge `v1.0.0`.
 | `web/` | React 19 + Vite + TS app (pnpm): `src/{app,routes,features,components/ui,api,lib,test,styles}`, `e2e/` (Playwright against the built binary + `academy/bin/opsforge-fake`). `src/api/schema.d.ts` and `src/routeTree.gen.ts` are generated and committed. |
 | `labs/` | Content packs: `<pack>/pack.yml`, `curricula/*.yml`, `labs/<id>.yml` (+ `labs/<id>/files/`), `badges.yml`, `courses/<id>/`, `assets/`. Compiled by `academy compile`. Lab steps are OpsForge's step language (data, checked by its `validate-steps`). |
 | `docs/` | The plan: architecture, frontend, design, content model, Kubernetes syllabus, testing, implementation (milestones). |
-| `scripts/with-opsforge-api.sh` | Runs a command against a throwaway `opsforge api serve` from `$OPSFORGE_DIR` (default `../opsforge`); without one the command runs alone (integration tests skip). |
+| `scripts/with-opsforge.sh` | Runs a command with `ACADEMY_OPSFORGE_URL`'s API when set, else with a throwaway `opsforge-fake` (warning: steps unchecked); used by `academy-validate`. |
+| `scripts/contract.sh` | `update <repo> <ref>` fetches OpsForge's `contract/` from git into `academy/contract/` + `PINNED` (commit, checksum); `check` verifies the checksum offline. |
 | `Makefile` | `make check` (shellcheck, yamllint, contract-check, Go lint + tests, pack compile, web checks, gen-check), `make academy` (web build embedded → `academy/bin/academy`), `academy-test`, `academy-lint`, `academy-validate`, `web-check`, `gen`, `e2e`, `contract-update`. |
 | `CHANGELOG.md` | Releases and milestone notes with measurements. |
 
@@ -30,8 +32,9 @@ parity). Tags: `v0.1.0` once Academy runs on OpsForge `v1.0.0`.
   RSS). Go 1.27, Node 22 + pnpm, Playwright browsers in `~/.cache/ms-playwright`. The host is mid-upgrade: no `pacman
   -S`; the local `shellcheck` is broken, so the Makefile falls back to the `koalaman/shellcheck` Docker image.
 - `sudo` needs a password: never run privileged commands; hand them to the user.
-- The live lab's API: in `../opsforge`, `./opsforge api serve` (127.0.0.1:8091, token `.opsforge/api-token`;
-  lab commands need the `incus-admin` group).
+- The live lab's API (on this host): in `../opsforge`, `./opsforge api serve` (127.0.0.1:8091, token
+  `.opsforge/api-token`; lab commands need the `incus-admin` group). To run the real-API tests against it:
+  `ACADEMY_OPSFORGE_URL=http://127.0.0.1:8091 ACADEMY_OPSFORGE_TOKEN_FILE=<a copy of the token> make check`.
 
 ## Conventions
 
@@ -50,8 +53,9 @@ parity). Tags: `v0.1.0` once Academy runs on OpsForge `v1.0.0`.
   `contract/README.md`) with the adapter `internal/opsforgeapi` (lab state, jobs, step checks, `workspace.FileStore`,
   `terminal.Spawner`). The `opsforge api <cmd> --json` CLI is the same contract for people and scripts. OpsForge owns
   `contract/` (schema, `openapi.yaml`, `golden/` written by its pytest); Academy reads its pinned copy `academy/contract/`
-  (`make contract-update` copies it from `$OPSFORGE_DIR`, default `../opsforge`; `contract-check` in `make check` fails
-  while they differ, skipped without a checkout). Additive change = bump
+  (`make contract-update [OPSFORGE_REF=vX.Y.Z] [OPSFORGE_REPO=<git url or clone>]` fetches it from git and writes
+  `PINNED`: commit, contract version, checksum; `contract-check` in `make check` fails on a hand-edited copy). Never
+  add a build or test step that reads an OpsForge checkout or starts OpsForge's code: CI runs its API as a service. Additive change = bump
   OpsForge's `contract.CONTRACT_MINOR` + a row in contract/README.md's table (Academy raises `opsforgeapi.MinMinor`/`MinRelease`
   only when it starts using the addition); breaking = major (`CONTRACT` and `opsforgeapi.Contract`). Inputs are strict, outputs open (Academy ignores unknown fields; OpsForge's tests check its
   outputs against the closed schema). `api version` = `{contract, minor, opsforge}` (`VERSION` in `opsforge`).
@@ -60,16 +64,18 @@ parity). Tags: `v0.1.0` once Academy runs on OpsForge `v1.0.0`.
   `run`/`probe`/`heal` (`lab_run`, `lab_probe`) are jobs over HTTP (the adapter polls `?wait=`; a lost job is
   `ErrJobLost`), their input checked against `contract/toolchain.schema.json` (the Go adapter checks the outputs); a
   failing step is the result's `error`, a bad call a problem. A `namespace` must be `lab-*`/`ch-*` (setup creates it on every cluster, labelled
-  `app.kubernetes.io/managed-by=opsforge-academy`; teardown always deletes it). The documents are Go types in the pure
+  `app.kubernetes.io/managed-by=opsforge-api`; teardown always deletes it). The documents are Go types in the pure
   package `internal/lab`, so module ports and the adapter share them; lab jobs use `LabTimeout` (20 min), other calls
   `OpsForgeTimeout`. Golden: `run.golden`, `probe.{passed,failed}`, `heal`, `job` (timings zeroed).
 - Academy config (split step 5): `--data` (default `$XDG_DATA_HOME/opsforge-academy`: `academy.db`, `opsforge-token`,
   a copy of OpsForge's `.opsforge/api-token` read at every call, so a missing one is a readyz problem, not a start
   failure), `--content` (packs, default `./labs`), `--opsforge-url` (default `http://127.0.0.1:8091`; plain http only to
-  loopback: the token), `--legacy-db` (migrate-legacy only). Tests: `opsforgeapi/opsforgefake` is the API in memory
-  (httpapi's world, cmd/academy, `cmd/opsforge-fake` for e2e); `make academy-test`/`academy-validate` run against a
-  throwaway real `opsforge api serve` (`scripts/with-opsforge-api.sh`; `opsforgeapi`'s `TestReal*` skip without it),
-  which is where real bash in the terminal is tested.
+  loopback: the token), `--opsforge-ca-file` (PEM to trust for a self-signed https OpsForge, used by calls and
+  terminals: `Client.TrustCA`), `--legacy-db` (migrate-legacy only; a copy of OpsForge's `.opsforge/labs.db`). Tests: `opsforgeapi/opsforgefake` is the API in memory
+  (httpapi's world, cmd/academy, `cmd/opsforge-fake` for e2e); `make academy-test`/`academy-validate` use the real
+  `opsforge api serve` named by `ACADEMY_OPSFORGE_URL`/`ACADEMY_OPSFORGE_TOKEN_FILE`/`ACADEMY_OPSFORGE_CA_FILE` (any
+  machine; `opsforgeapi`'s `TestReal*` skip without, the compile falls back to the fake), which is where real bash in
+  the terminal is tested.
 - Academy contract-first: edit `academy/api/openapi.yaml`, `make gen`, then tests, then handlers. Generated files
   (`*.gen.go`, `wire_gen.go`, `web/src/api/schema.d.ts`, `web/src/routeTree.gen.ts`) are committed; `gen-check` fails
   when stale. httpapi's TestMain fails when a documented response has no contract test. Module layering is enforced by
@@ -172,8 +178,8 @@ parity). Tags: `v0.1.0` once Academy runs on OpsForge `v1.0.0`.
 ## Verify
 
 ```bash
-make check             # lint, Go tests (real-API ones against ../opsforge), pack compile, web checks, gen-check
+make check             # lint, contract pin, Go tests, pack compile, web checks, gen-check (real API: ACADEMY_OPSFORGE_*)
 make e2e               # Playwright against the built binary and the fake OpsForge API
-make academy && ./academy/bin/academy serve --content labs   # http://127.0.0.1:8090/ with ../opsforge's API running
+make academy && ./academy/bin/academy serve --content labs   # http://127.0.0.1:8090/ with OpsForge's API running
 #   (copy its token first: install -m 600 ../opsforge/.opsforge/api-token ~/.local/share/opsforge-academy/opsforge-token)
 ```

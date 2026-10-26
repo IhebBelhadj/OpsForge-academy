@@ -106,11 +106,20 @@ as done when its lab was passed).
 
 OpsForge's HTTP API (`opsforge api serve`, `contract/openapi.yaml` in the OpsForge repo, rules in its
 `contract/README.md`) is Academy's only way to the lab: one adapter, `internal/opsforgeapi` (an HTTP client over
-`internal/lab`'s types; `opsforgefake` is the same API in memory for tests and e2e). Configured by a URL and a token
-file; plain http only to loopback. The same documents exist as `opsforge api <cmd> --json` for people and scripts on
-the lab host. Versioned by `contract: 1` (the major) in every document and the minor in `GET /v1/version`: Academy
-refuses another major and, at `/readyz`, a minor below what it uses; it ignores output fields it does not know, and
-keeps a pinned copy of the contract (`academy/contract/`, `make contract-update V=x.y.z`).
+`internal/lab`'s types; `opsforgefake` is the same API in memory for tests and e2e). Configured by a URL, a token
+file and, for a self-signed https OpsForge, a CA file (`--opsforge-ca-file`); plain http only to loopback. The same
+documents exist as `opsforge api <cmd> --json` for people and scripts on the lab host. Versioned by `contract: 1`
+(the major) in every document and the minor in `GET /v1/version`: Academy refuses another major and, at `/readyz`, a
+minor below what it uses; it ignores output fields it does not know, and keeps a pinned copy of the contract
+(`academy/contract/`, fetched from OpsForge's git repository by `make contract-update OPSFORGE_REF=vX.Y.Z`; `PINNED`
+records commit and checksum).
+
+**Deployment.** The two share nothing but the API: no files, no checkout, no database, no process. Academy runs on
+the lab host (OpsForge's API on loopback) or on another machine: OpsForge serves its API over TLS on a reachable
+address (`opsforge api serve --host <addr> --tls-cert --tls-key`; it refuses a non-loopback address without TLS) or
+stays on loopback behind an SSH tunnel; Academy gets the URL, a copy of the token and, for a self-signed
+certificate, the certificate. The learner's browser only ever talks to Academy (OpsForge refuses requests with an
+Origin), and Academy's terminal WebSockets are proxied to OpsForge's.
 
 | Route | In | Out |
 |---|---|---|

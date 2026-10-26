@@ -3,12 +3,11 @@ SHELL_SCRIPTS := $(shell find . -name '*.sh' -not -path './.git/*' -not -path '.
 SHELLCHECK := $(shell shellcheck --version >/dev/null 2>&1 && echo shellcheck || \
 	echo docker run --rm -v "$(CURDIR):/mnt:ro" -w /mnt koalaman/shellcheck:v0.11.0)
 
-# OpsForge (the lab, its own repository): only its API is used. A checkout is needed only by the integration tests,
-# the pack compile (steps checked by a throwaway `opsforge api serve`) and contract-update.
-OPSFORGE_DIR ?= ../opsforge
-# Absolute: the Go targets run from academy/
-override OPSFORGE_DIR := $(abspath $(OPSFORGE_DIR))
-export OPSFORGE_DIR
+# OpsForge (the lab) is another project, possibly on another machine: Academy reaches it only through its API
+# (ACADEMY_OPSFORGE_URL, ACADEMY_OPSFORGE_TOKEN_FILE, ACADEMY_OPSFORGE_CA_FILE) and takes its contract from its git
+# repository (contract-update). Nothing here reads an OpsForge checkout.
+OPSFORGE_REPO ?= https://github.com/IhebBelhadj/OpsForge.git
+OPSFORGE_REF ?= master
 
 .PHONY: check lint-shell lint-yaml academy academy-test academy-lint academy-validate web-deps web-build web-check \
 	gen gen-check e2e contract-check contract-update
@@ -21,21 +20,14 @@ lint-shell:
 lint-yaml:
 	yamllint .
 
-# academy/contract is a pinned copy of OpsForge's contract/ (its API's schema, OpenAPI document and golden documents).
-# contract-update copies it from $(OPSFORGE_DIR) (check out the OpsForge release to pin first); contract-check tells
-# when the pinned copy differs from that checkout (skipped without one).
-CONTRACT_FILES = toolchain.schema.json openapi.yaml README.md golden
-
+# academy/contract is a pinned copy of OpsForge's contract/: contract-update fetches it from $(OPSFORGE_REPO) at
+# $(OPSFORGE_REF) (its release tag once there is one) and records commit and checksum in PINNED; contract-check
+# (offline) fails when the copy was edited by hand.
 contract-check:
-	@if [ ! -d "$(OPSFORGE_DIR)/contract" ]; then echo "contract-check: no OpsForge at $(OPSFORGE_DIR), skipping"; exit 0; fi; \
-	for f in $(CONTRACT_FILES); do diff -r "$(OPSFORGE_DIR)/contract/$$f" academy/contract/$$f >/dev/null || { \
-		echo "academy/contract/$$f differs from $(OPSFORGE_DIR)/contract/$$f: make contract-update"; exit 1; }; done
+	scripts/contract.sh check
 
 contract-update:
-	for f in $(CONTRACT_FILES); do rm -rf academy/contract/$$f && cp -r "$(OPSFORGE_DIR)/contract/$$f" academy/contract/; done
-	printf 'opsforge %s (contract %s)\n' \
-		"$$("$(OPSFORGE_DIR)/opsforge" api version --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["opsforge"])')" \
-		"$$("$(OPSFORGE_DIR)/opsforge" api version | sed 's/.*contract //')" > academy/contract/PINNED
+	scripts/contract.sh update "$(OPSFORGE_REPO)" "$(OPSFORGE_REF)"
 
 # The Go platform in academy/ with the React app from web/ embedded.
 # Go tools (sqlc, oapi-codegen, wire, golangci-lint) are pinned in academy/tools/go.mod.
@@ -50,14 +42,14 @@ academy: web-build
 	cd academy && CGO_ENABLED=0 go build -trimpath -o bin/opsforge-fake ./cmd/opsforge-fake
 	@echo "built academy/bin/academy $(ACADEMY_VERSION): ./academy/bin/academy serve"
 
-# The tests (the integration ones included) and the pack compile run against a throwaway `opsforge api serve` from
-# $(OPSFORGE_DIR) (scripts/with-opsforge-api.sh sets ACADEMY_OPSFORGE_URL and ACADEMY_OPSFORGE_TOKEN_FILE), so they
-# need Python with PyYAML and jsonschema. Without an OpsForge the integration tests skip.
+# With ACADEMY_OPSFORGE_URL and ACADEMY_OPSFORGE_TOKEN_FILE (+ ACADEMY_OPSFORGE_CA_FILE) naming a running
+# `opsforge api serve`, here or on another machine, the integration tests run against it and it checks the packs'
+# steps; without, the integration tests skip and the packs compile against the fake OpsForge (steps unchecked).
 academy-test:
-	cd academy && ../scripts/with-opsforge-api.sh go test -race ./...
+	cd academy && go test -race ./...
 
 academy-validate:
-	cd academy && ../scripts/with-opsforge-api.sh go run ./cmd/academy compile --content ../labs
+	cd academy && ../scripts/with-opsforge.sh go run ./cmd/academy compile --content ../labs
 
 academy-lint:
 	cd academy && go vet ./... && $(GO_TOOL) golangci-lint run ./...

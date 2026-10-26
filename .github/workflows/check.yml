@@ -6,23 +6,18 @@ on:
   schedule:
     - cron: "0 3 * * *"  # nightly: the contract tests against OpsForge's master
 
-# OpsForge (the lab) is another repository: the jobs that need its API check it out next to this one
-# (OPSFORGE_DIR): master until OpsForge tags v1.0.0, then the release pinned in academy/contract/PINNED (and master
-# on the nightly run).
+# OpsForge (the lab) is another project: the go job runs its API as a service, outside this checkout, and gives
+# Academy only its URL and token (as on separate machines). OPSFORGE_REF: master until OpsForge tags v1.0.0, then the
+# release pinned in academy/contract/PINNED (and master on the nightly run).
 env:
-  OPSFORGE_DIR: ${{ github.workspace }}/opsforge
+  OPSFORGE_REPO: https://github.com/IhebBelhadj/OpsForge.git
+  OPSFORGE_REF: master
 
 jobs:
   go:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Check out OpsForge (its API runs the integration tests and checks the packs' steps)
-        uses: actions/checkout@v4
-        with:
-          repository: IhebBelhadj/OpsForge
-          ref: master
-          path: opsforge
       - uses: actions/setup-go@v5
         with:
           go-version-file: academy/go.mod
@@ -30,8 +25,15 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Install OpsForge's dependencies (tests run against a throwaway `opsforge api serve`)
-        run: pip install pyyaml jsonschema
+      - name: Start OpsForge's API (the integration tests run against it; it checks the packs' steps)
+        run: |
+          git clone -q --depth 1 --branch "$OPSFORGE_REF" "$OPSFORGE_REPO" "$RUNNER_TEMP/opsforge"
+          pip install pyyaml jsonschema
+          nohup "$RUNNER_TEMP/opsforge/opsforge" api serve --port 8091 --data "$RUNNER_TEMP/opsforge-api" \
+            >"$RUNNER_TEMP/opsforge-api.log" 2>&1 &
+          for _ in $(seq 50); do curl -fs http://127.0.0.1:8091/v1/version && break; sleep 0.2; done
+          echo "ACADEMY_OPSFORGE_URL=http://127.0.0.1:8091" >>"$GITHUB_ENV"
+          echo "ACADEMY_OPSFORGE_TOKEN_FILE=$RUNNER_TEMP/opsforge-api/api-token" >>"$GITHUB_ENV"
       - name: Lint (vet, golangci-lint with the layering rules)
         run: make academy-lint
       - name: Test (with the integration tests against OpsForge's API)
@@ -45,8 +47,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install tools
         run: pip install yamllint
-      - name: Shell scripts and YAML
-        run: make lint-shell lint-yaml
+      - name: Shell scripts, YAML, the pinned contract
+        run: make lint-shell lint-yaml contract-check
 
   web:
     runs-on: ubuntu-latest

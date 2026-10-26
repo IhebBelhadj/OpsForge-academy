@@ -15,18 +15,23 @@ import (
 	"github.com/IhebBelhadj/opsforge-academy/academy/internal/workspace"
 )
 
-// real is a client of a real `opsforge api serve` (ACADEMY_OPSFORGE_URL and ACADEMY_OPSFORGE_TOKEN_FILE, as
-// scripts/with-opsforge-api.sh sets them for `make academy-test`); the test is skipped without one. The lab need
-// not be up: lab work runs host steps.
+// real is a client of a real `opsforge api serve`, on this machine or another (ACADEMY_OPSFORGE_URL,
+// ACADEMY_OPSFORGE_TOKEN_FILE and, for a self-signed https one, ACADEMY_OPSFORGE_CA_FILE); the test is skipped
+// without one. The lab need not be up: lab work runs host steps.
 func real(t *testing.T) *opsforgeapi.Client {
 	t.Helper()
 	url, tokenFile := os.Getenv("ACADEMY_OPSFORGE_URL"), os.Getenv("ACADEMY_OPSFORGE_TOKEN_FILE")
 	if url == "" || tokenFile == "" {
-		t.Skip("no opsforge api serve (scripts/with-opsforge-api.sh go test ./...)")
+		t.Skip("no OpsForge API: set ACADEMY_OPSFORGE_URL and ACADEMY_OPSFORGE_TOKEN_FILE")
 	}
 	c, err := opsforgeapi.New(url, opsforgeapi.TokenFile(tokenFile), 30*time.Second, 2*time.Minute)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if ca := os.Getenv("ACADEMY_OPSFORGE_CA_FILE"); ca != "" {
+		if err := c.TrustCA(ca); err != nil {
+			t.Fatal(err)
+		}
 	}
 	return c
 }

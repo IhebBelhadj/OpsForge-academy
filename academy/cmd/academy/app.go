@@ -151,10 +151,15 @@ func provideStore(ctx context.Context, cfg config.Config, clock platform.Clock) 
 	return store, func() { _ = store.Close() }, nil
 }
 
-// provideOpsForge is OpsForge's API with its token (a copy of OpsForge's .opsforge/api-token, read at each call).
+// provideOpsForge is OpsForge's API with its token (a copy of OpsForge's .opsforge/api-token, read at each call),
+// trusting --opsforge-ca-file when OpsForge serves a self-signed certificate.
 func provideOpsForge(cfg config.Config) (*opsforgeapi.Client, error) {
-	return opsforgeapi.New(cfg.OpsForgeURL, opsforgeapi.TokenFile(cfg.OpsForgeTokenFile), cfg.OpsForgeTimeout,
+	c, err := opsforgeapi.New(cfg.OpsForgeURL, opsforgeapi.TokenFile(cfg.OpsForgeTokenFile), cfg.OpsForgeTimeout,
 		cfg.LabTimeout)
+	if err == nil && cfg.OpsForgeCAFile != "" {
+		err = c.TrustCA(cfg.OpsForgeCAFile)
+	}
+	return c, err
 }
 
 func provideReadiness(store *sqlite.Store, opsforge *opsforgeapi.Client) []httpapi.ReadinessCheck {
