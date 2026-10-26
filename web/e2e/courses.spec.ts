@@ -43,3 +43,21 @@ test("the course content is a drawer on a phone and a sidebar on a desktop", asy
   await content.getByRole("link", { name: /1\.4 First pod/ }).click();
   await expect(page.getByRole("heading", { level: 1, name: "First pod" })).toBeVisible();
 });
+
+test("a quiz is drawn, scored and passed on the server", async ({ page }) => {
+  await page.goto("/learn/k8s-intro/pods-check");
+  await page.getByRole("button", { name: /^(Start quiz|Start over)$/ }).click();
+  // The server shuffles questions and choices: answer each by what it asks
+  for (const n of [1, 2]) {
+    await expect(page.getByText(`Question ${String(n)} of 2`)).toBeVisible();
+    if (await page.getByText("What do the containers of one pod share?").isVisible())
+      await page.getByRole("radio", { name: "A network namespace" }).click();
+    else
+      for (const phase of ["Pending", "Running", "Succeeded"])
+        await page.getByRole("checkbox", { name: phase }).click();
+    if (n === 1) await page.getByRole("button", { name: "Next" }).click();
+  }
+  await page.getByRole("button", { name: "Submit quiz" }).click();
+  await expect(page.getByRole("heading", { name: "Passed: 2 of 2" })).toBeVisible();
+  await expect(page.getByLabel("Right")).toHaveCount(2);
+});

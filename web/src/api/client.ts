@@ -18,6 +18,9 @@ export type Course = Schemas["Course"];
 export type ItemRef = Schemas["ItemRef"];
 export type Item = Schemas["Item"];
 export type ItemType = Schemas["ItemType"];
+export type QuizAttempt = Schemas["QuizAttempt"];
+export type QuizQuestion = Schemas["QuizQuestion"];
+export type QuizAttemptSummary = Schemas["QuizAttemptSummary"];
 
 /** A problem document the API answered, as an Error (queries reject with it). */
 export class ProblemError extends Error {
@@ -79,6 +82,7 @@ export const keys = {
   courses: ["courses"] as const,
   course: (course: string) => ["courses", course] as const,
   item: (course: string, item: string) => ["courses", course, "items", item] as const,
+  quizAttempts: (course: string, item: string) => ["courses", course, "items", item, "quiz-attempts"] as const,
 };
 
 function fail(error: unknown): never {
@@ -109,6 +113,36 @@ export const queries = {
       return data ?? fail(error);
     },
   }),
+  quizAttempts: (course: string, item: string) => ({
+    queryKey: keys.quizAttempts(course, item),
+    queryFn: async () => {
+      const { data, error } = await api.GET("/api/v1/courses/{course}/items/{item}/quiz-attempts", {
+        params: { path: { course, item } },
+      });
+      return data?.attempts ?? fail(error);
+    },
+  }),
+};
+
+/** Changes, for useMutation: each resolves with the API's answer or rejects with a ProblemError. */
+export const actions = {
+  startQuiz: async ({ course, item }: { course: string; item: string }) => {
+    const { data, error } = await api.POST("/api/v1/courses/{course}/items/{item}/quiz-attempts", {
+      params: { path: { course, item } },
+    });
+    return data ?? fail(error);
+  },
+  quizAttempt: async (attempt: number) => {
+    const { data, error } = await api.GET("/api/v1/quiz-attempts/{attempt}", { params: { path: { attempt } } });
+    return data ?? fail(error);
+  },
+  submitQuiz: async ({ attempt, answers }: { attempt: number; answers: Record<string, number[]> }) => {
+    const { data, error } = await api.POST("/api/v1/quiz-attempts/{attempt}/submit", {
+      params: { path: { attempt } },
+      body: { answers },
+    });
+    return data ?? fail(error);
+  },
 };
 
 /** Whether a query failed because the thing is not in the catalogue (404). */

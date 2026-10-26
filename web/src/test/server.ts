@@ -156,6 +156,71 @@ export const fixtures = {
   } satisfies Record<string, Schemas["Item"]>,
 };
 
+/** The demo quiz "Pods check" as the server keeps it: keys and explanations reach the page only in a result. */
+const podsCheck = [
+  {
+    id: "shared",
+    type: "single" as const,
+    prompt: "What do the containers of one pod share?",
+    choices: ["Nothing", "A network namespace", "A node pool"],
+    answer: [1],
+    explain: "Containers in a pod share one network namespace, so they reach each other on localhost.",
+    see: "what-is-a-pod",
+  },
+  {
+    id: "phases",
+    type: "multiple" as const,
+    prompt: "Which of these are pod phases?",
+    choices: ["Pending", "Running", "Sleeping", "Succeeded"],
+    answer: [0, 1, 3],
+    explain: "Sleeping is not a phase.",
+    see: null,
+  },
+];
+
+/** The learner's quiz attempts, newest last; tests start with none. */
+let quizAttempts: Schemas["QuizAttempt"][] = [];
+export function resetQuizAttempts() {
+  quizAttempts = [];
+}
+
+function startQuizAttempt(timeLimitS?: number): Schemas["QuizAttempt"] {
+  const now = Date.now();
+  const attempt: Schemas["QuizAttempt"] = {
+    id: quizAttempts.length + 1,
+    course: "k8s-intro",
+    item: "pods-check",
+    started_at: new Date(now).toISOString(),
+    deadline: timeLimitS ? new Date(now + timeLimitS * 1000).toISOString() : null,
+    submitted_at: null,
+    pass: 70,
+    // The choices of the second question come reversed, as a shuffle would: answers name them by index
+    questions: podsCheck.map((q, i) => {
+      const choices = q.choices.map((text, index) => ({ index, text }));
+      return { id: q.id, type: q.type, prompt: q.prompt, choices: i === 1 ? choices.reverse() : choices };
+    }),
+    result: null,
+  };
+  quizAttempts.push(attempt);
+  return attempt;
+}
+
+/** Scores answers as the quiz module does: a left-out question is wrong, multiple choice is all or nothing. */
+function scoreQuizAttempt(attempt: Schemas["QuizAttempt"], answers: Record<string, number[]>) {
+  const firstPass = !quizAttempts.some((a) => a.result?.passed);
+  const questions = podsCheck.map((q) => {
+    const given = [...(answers[q.id] ?? [])].sort((a, b) => a - b);
+    const correct = given.length === q.answer.length && given.every((v, i) => v === q.answer[i]);
+    return { id: q.id, correct, answer: q.answer, given, explain: q.explain, see: q.see };
+  });
+  const correct = questions.filter((q) => q.correct).length;
+  const score = Math.floor((correct * 100) / questions.length);
+  const passed = score >= attempt.pass;
+  attempt.submitted_at = new Date().toISOString();
+  attempt.result = { score, passed, correct, total: questions.length, xp: passed && firstPass ? 20 : 0, questions };
+  return attempt;
+}
+
 export function notFound(detail: string): Schemas["Problem"] {
   return { type: "/problems/not-found", title: "Not found", status: 404, detail };
 }
@@ -187,6 +252,40 @@ export const server = setupServer(
           ...problem,
         }),
   ),
+  http.get("*/api/v1/courses/:course/items/:item/quiz-attempts", () =>
+    HttpResponse.json({
+      attempts: quizAttempts
+        .map((a) => ({
+          id: a.id,
+          started_at: a.started_at,
+          submitted_at: a.submitted_at,
+          score: a.result?.score ?? null,
+          passed: a.result?.passed ?? null,
+          xp: a.result?.xp ?? 0,
+        }))
+        .reverse(),
+    }),
+  ),
+  http.post("*/api/v1/courses/:course/items/:item/quiz-attempts", () =>
+    HttpResponse.json(startQuizAttempt(), { status: 201 }),
+  ),
+  http.get("*/api/v1/quiz-attempts/:attempt", ({ params }) => {
+    const attempt = quizAttempts.find((a) => a.id === Number(params.attempt));
+    return attempt
+      ? HttpResponse.json(attempt)
+      : HttpResponse.json(notFound("no such attempt"), { status: 404, ...problem });
+  }),
+  http.post("*/api/v1/quiz-attempts/:attempt/submit", async ({ params, request }) => {
+    const attempt = quizAttempts.find((a) => a.id === Number(params.attempt));
+    if (!attempt) return HttpResponse.json(notFound("no such attempt"), { status: 404, ...problem });
+    if (attempt.submitted_at)
+      return HttpResponse.json(
+        { type: "/problems/already-submitted", title: "Already submitted", status: 409 },
+        { status: 409, ...problem },
+      );
+    const { answers } = (await request.json()) as Schemas["QuizAnswers"];
+    return HttpResponse.json(scoreQuizAttempt(attempt, answers));
+  }),
   http.get("*/api/v1/courses/:course/items/:item", ({ params }) => {
     const item = (fixtures.items as Record<string, Schemas["Item"]>)[String(params.item)];
     return params.course === fixtures.course.id && item
@@ -195,4 +294,4 @@ export const server = setupServer(
   }),
 );
 
-export { http, HttpResponse };
+export { http, HttpResponse, startQuizAttempt };

@@ -1,30 +1,61 @@
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { Check, ChevronLeft, ChevronRight, Clock, RotateCcw, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useEffectEvent, useState } from "react";
 
-import type { Item } from "@/api/client";
+import {
+  actions,
+  type Item,
+  keys,
+  ProblemError,
+  queries,
+  type QuizAttempt,
+  type QuizAttemptSummary,
+  type QuizQuestion,
+} from "@/api/client";
 import { Lamp } from "@/components/lamp";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Progress } from "@/components/ui/progress";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
+import { Markdown } from "@/features/lecture";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { duration } from "@/lib/format";
+import { count, duration } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { type MockQuestion, quizQuestions } from "@/mock";
 
 type Answers = Record<string, number[]>;
-type Phase = { at: "intro" } | { at: "taking"; started: number } | { at: "results"; answers: Answers };
 
 /** A quiz in the player (design.md §4): Udemy's flow (intro, one question at a time, results) on LeetCode's split
- * (the question left, your answer right, a navigator and Submit below). */
+ * (the question left, your answer right, a navigator and Submit below). The server draws the questions, keeps the
+ * keys and scores; the page only ever sees an attempt's questions, then its result. */
 export function QuizView({ item, number, next }: { item: Item; number: string; next?: React.ReactNode }) {
-  const [phase, setPhase] = useState<Phase>({ at: "intro" });
+  const client = useQueryClient();
+  const at = { course: item.course, item: item.id };
+  const attempts = useQuery(queries.quizAttempts(at.course, at.item));
+  const [attempt, setAttempt] = useState<QuizAttempt>();
+  const refresh = () => client.invalidateQueries({ queryKey: keys.quizAttempts(at.course, at.item) });
+  const start = useMutation({
+    mutationFn: () => actions.startQuiz(at),
+    onSuccess: (a) => {
+      setAttempt(a);
+      void refresh();
+    },
+  });
+  const resume = useMutation({ mutationFn: actions.quizAttempt, onSuccess: setAttempt });
+  const submit = useMutation({
+    mutationFn: actions.submitQuiz,
+    onSuccess: (a) => {
+      setAttempt(a);
+      void refresh();
+      void client.invalidateQueries({ queryKey: keys.course(at.course) });
+    },
+  });
   const quiz = item.quiz;
   if (!quiz) return null;
 
-  if (phase.at === "intro")
+  if (!attempt) {
+    const open = attempts.data?.find((a) => !a.submitted_at);
     return (
       <section aria-labelledby="item-title" className="mx-auto max-w-[70ch]">
         <p className="text-ink-soft">
@@ -35,7 +66,7 @@ export function QuizView({ item, number, next }: { item: Item; number: string; n
         </h1>
         <dl className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-4">
           {[
-            ["Questions", String(quizQuestions.length)],
+            ["Questions", String(quiz.questions)],
             ["To pass", `${String(quiz.pass)} %`],
             ["Time", quiz.time_limit_s ? duration(Math.ceil(quiz.time_limit_s / 60)) : "No limit"],
             ["XP", String(quiz.xp)],
@@ -52,29 +83,51 @@ export function QuizView({ item, number, next }: { item: Item; number: string; n
         </p>
         <div className="mt-4 rounded-md border border-dashed border-control p-4">
           <p className="font-semibold">Your attempts</p>
-          <p className="text-sm text-ink-soft">Best 5 of 8 yesterday, not passed yet. Your best score is kept.</p>
+          <p className="text-sm text-ink-soft">{attempts.data ? history(attempts.data) : "Loading…"}</p>
         </div>
-        <Button
-          size="lg"
-          className="mt-6"
-          onClick={() => {
-            setPhase({ at: "taking", started: Date.now() });
-          }}
-        >
-          Start quiz
-        </Button>
+        <div className="mt-6 flex flex-wrap gap-3">
+          {open ? (
+            <Button
+              size="lg"
+              disabled={resume.isPending}
+              onClick={() => {
+                resume.mutate(open.id);
+              }}
+            >
+              Continue attempt
+            </Button>
+          ) : null}
+          <Button
+            size="lg"
+            variant={open ? "outline" : "default"}
+            disabled={start.isPending}
+            onClick={() => {
+              start.mutate();
+            }}
+          >
+            {open ? "Start over" : "Start quiz"}
+          </Button>
+        </div>
+        <Failure error={start.error ?? resume.error} />
       </section>
     );
+  }
 
-  if (phase.at === "taking")
+  if (!attempt.result)
     return (
       <Taking
+        key={attempt.id}
         title={item.title}
         number={number}
-        limit={quiz.time_limit_s ?? undefined}
-        started={phase.started}
+        attempt={attempt}
+        sending={submit.isPending}
+        error={submit.error}
         onSubmit={(answers) => {
-          setPhase({ at: "results", answers });
+          submit.mutate({ attempt: attempt.id, answers });
+        }}
+        onRestart={() => {
+          submit.reset();
+          start.mutate();
         }}
       />
     );
@@ -82,37 +135,63 @@ export function QuizView({ item, number, next }: { item: Item; number: string; n
   return (
     <Results
       title={item.title}
-      pass={quiz.pass}
+      course={item.course}
       xp={quiz.xp}
-      answers={phase.answers}
+      attempt={attempt}
+      result={attempt.result}
+      retaking={start.isPending}
       onRetake={() => {
-        setPhase({ at: "taking", started: Date.now() });
+        start.mutate();
       }}
       next={next}
     />
   );
 }
 
+/** One line about the learner's past attempts. */
+function history(attempts: QuizAttemptSummary[]) {
+  const done = attempts.filter((a) => a.submitted_at);
+  if (!done.length) return "No attempts yet.";
+  const best = Math.max(...done.map((a) => a.score ?? 0));
+  const passed = done.some((a) => a.passed);
+  return `${count(done.length, "attempt")}, best ${String(best)} %${passed ? ", passed" : ", not passed yet"}. Your best score is kept.`;
+}
+
+function Failure({ error }: { error: Error | null }) {
+  if (!error) return null;
+  return (
+    <p role="alert" className="mt-4 rounded-md border border-red/40 bg-surface p-3 text-sm">
+      {error.message}
+    </p>
+  );
+}
+
 function Taking({
   title,
   number,
-  limit,
-  started,
+  attempt,
+  sending,
+  error,
   onSubmit,
+  onRestart,
 }: {
   title: string;
   number: string;
-  limit?: number | undefined;
-  started: number;
+  attempt: QuizAttempt;
+  sending: boolean;
+  error: Error | null;
   onSubmit: (a: Answers) => void;
+  onRestart: () => void;
 }) {
   const [at, setAt] = useState(0);
   const [answers, setAnswers] = useState<Answers>({});
   const mobile = useIsMobile();
-  const q = quizQuestions[at];
+  const questions = attempt.questions;
+  const q = questions[at];
   if (!q) return null;
   const answered = Object.values(answers).filter((a) => a.length).length;
-  const last = at === quizQuestions.length - 1;
+  const last = at === questions.length - 1;
+  const expired = error instanceof ProblemError && error.status === 409; // expired or already submitted
 
   return (
     <section aria-labelledby="quiz-title" className="mx-auto max-w-6xl">
@@ -120,28 +199,33 @@ function Taking({
         <h1 id="quiz-title" className="text-xl font-semibold">
           Quiz {number}: {title}
         </h1>
-        {limit ? <Countdown limit={limit} started={started} /> : null}
+        {attempt.deadline ? (
+          <Countdown
+            deadline={Date.parse(attempt.deadline)}
+            onEnd={() => {
+              if (!sending) onSubmit(answers);
+            }}
+          />
+        ) : null}
       </div>
       <div className="mt-4 overflow-hidden rounded-lg border border-rule">
         <ResizablePanelGroup orientation={mobile ? "vertical" : "horizontal"} className="min-h-[28rem]">
           <ResizablePanel defaultSize="55%" minSize="30%" className="bg-surface">
             <div className="h-full overflow-auto p-5 sm:p-6">
               <p className="text-sm text-ink-soft">
-                Question {at + 1} of {quizQuestions.length}
+                Question {at + 1} of {questions.length}
               </p>
-              <h2 className="mt-2 text-lg leading-snug font-semibold sm:text-xl">{q.prompt}</h2>
-              {q.output ? (
-                <pre className="mt-5 overflow-x-auto rounded-md bg-term-bg p-4 font-mono text-[0.8rem] leading-6 text-term-fg">
-                  {q.output}
-                </pre>
-              ) : null}
+              <h2 className="sr-only">Question {at + 1}</h2>
+              <Markdown variant="compact" className="mt-2 text-lg font-semibold sm:text-xl">
+                {q.prompt}
+              </Markdown>
             </div>
           </ResizablePanel>
           <ResizableHandle withHandle className="bg-rule" />
           <ResizablePanel defaultSize="45%" minSize="30%" className="bg-enamel">
             <div className="flex h-full flex-col p-5 sm:p-6">
               <p id="answer-label" className="font-semibold">
-                {q.kind === "multiple" ? "Select all that apply" : "Choose one"}
+                {q.type === "multiple" ? "Select all that apply" : "Choose one"}
               </p>
               <Choices
                 q={q}
@@ -178,7 +262,7 @@ function Taking({
 
       <div className="mt-4 flex flex-wrap items-center justify-between gap-4">
         <ol aria-label="Questions" className="flex flex-wrap gap-2">
-          {quizQuestions.map((qq, i) => {
+          {questions.map((qq, i) => {
             const done = Boolean(answers[qq.id]?.length);
             return (
               <li key={qq.id}>
@@ -203,29 +287,43 @@ function Taking({
         </ol>
         <div className="flex items-center gap-4">
           <span className="text-sm text-ink-soft">
-            {answered} of {quizQuestions.length} answered
+            {answered} of {questions.length} answered
           </span>
           <Button
             size="lg"
+            disabled={sending}
             onClick={() => {
               onSubmit(answers);
             }}
           >
-            Submit quiz
+            {sending ? "Submitting…" : "Submit quiz"}
           </Button>
         </div>
       </div>
+      {error ? (
+        <div
+          role="alert"
+          className="mt-4 flex flex-wrap items-center gap-3 rounded-md border border-red/40 bg-surface p-3"
+        >
+          <span className="text-sm">{error.message}</span>
+          {expired ? (
+            <Button size="sm" variant="outline" onClick={onRestart}>
+              <RotateCcw aria-hidden /> Start a new attempt
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
     </section>
   );
 }
 
-function Choices({ q, value, onChange }: { q: MockQuestion; value: number[]; onChange: (v: number[]) => void }) {
+function Choices({ q, value, onChange }: { q: QuizQuestion; value: number[]; onChange: (v: number[]) => void }) {
   const box = (on: boolean) =>
     cn(
       "flex cursor-pointer items-start gap-3 rounded-lg border bg-surface p-3.5 leading-snug transition-colors",
       on ? "border-ink bg-enamel/60" : "border-rule hover:border-control hover:bg-paper",
     );
-  if (q.kind === "single")
+  if (q.type === "single")
     return (
       <RadioGroup
         aria-labelledby="answer-label"
@@ -235,34 +333,37 @@ function Choices({ q, value, onChange }: { q: MockQuestion; value: number[]; onC
         }}
         className="mt-3 gap-2.5"
       >
-        {q.choices.map((c, i) => (
-          <label key={c} className={box(value.includes(i))}>
-            <RadioGroupItem value={String(i)} className="mt-0.5 border-control" />
-            {c}
+        {q.choices.map((c) => (
+          <label key={c.index} className={box(value.includes(c.index))}>
+            <RadioGroupItem value={String(c.index)} className="mt-0.5 border-control" />
+            {c.text}
           </label>
         ))}
       </RadioGroup>
     );
   return (
     <div role="group" aria-labelledby="answer-label" className="mt-3 grid gap-2.5">
-      {q.choices.map((c, i) => (
-        <label key={c} className={box(value.includes(i))}>
+      {q.choices.map((c) => (
+        <label key={c.index} className={box(value.includes(c.index))}>
           <Checkbox
-            checked={value.includes(i)}
+            checked={value.includes(c.index)}
             onCheckedChange={(on) => {
-              onChange(on ? [...value, i].sort() : value.filter((v) => v !== i));
+              onChange(on ? [...value, c.index].sort((a, b) => a - b) : value.filter((v) => v !== c.index));
             }}
             className="mt-0.5 border-control"
           />
-          {c}
+          {c.text}
         </label>
       ))}
     </div>
   );
 }
 
-function Countdown({ limit, started }: { limit: number; started: number }) {
+/** Time left until the attempt's deadline; onEnd once when it is reached (the server takes a few seconds' grace). */
+function Countdown({ deadline, onEnd }: { deadline: number; onEnd: () => void }) {
   const [now, setNow] = useState(Date.now);
+  const end = useEffectEvent(onEnd);
+  const left = Math.max(0, Math.ceil((deadline - now) / 1000));
   useEffect(() => {
     const t = setInterval(() => {
       setNow(Date.now());
@@ -271,7 +372,10 @@ function Countdown({ limit, started }: { limit: number; started: number }) {
       clearInterval(t);
     };
   }, []);
-  const left = Math.max(0, limit - Math.floor((now - started) / 1000));
+  const ended = left === 0;
+  useEffect(() => {
+    if (ended) end();
+  }, [ended]);
   const low = left < 60;
   return (
     <p role="timer" aria-live={low ? "polite" : "off"} className="flex items-center gap-2 font-semibold tabular-nums">
@@ -281,28 +385,28 @@ function Countdown({ limit, started }: { limit: number; started: number }) {
   );
 }
 
-function same(a: number[] = [], b: number[]) {
-  return a.length === b.length && a.every((v, i) => v === b[i]);
-}
-
 function Results({
   title,
-  pass,
+  course,
   xp,
-  answers,
+  attempt,
+  result,
+  retaking,
   onRetake,
   next,
 }: {
   title: string;
-  pass: number;
+  course: string;
   xp: number;
-  answers: Answers;
+  attempt: QuizAttempt;
+  result: NonNullable<QuizAttempt["result"]>;
+  retaking: boolean;
   onRetake: () => void;
   next?: React.ReactNode;
 }) {
-  const right = quizQuestions.filter((q) => same(answers[q.id], q.answer)).length;
-  const pct = Math.round((right / quizQuestions.length) * 100);
-  const passed = pct >= pass;
+  const lectures = useLectureTitles(course);
+  const questions = new Map(attempt.questions.map((q) => [q.id, q]));
+  const { passed } = result;
   return (
     <section aria-labelledby="result" className="mx-auto max-w-[75ch]">
       <div className={cn("rounded-lg border border-rule p-5", passed ? "bg-green-soft" : "bg-surface")}>
@@ -310,20 +414,24 @@ function Results({
           <Lamp on={passed ? "green" : "red"} /> {title}
         </p>
         <h1 id="result" className="mt-1 text-2xl font-semibold tracking-[-0.01em]">
-          {passed ? "Passed" : "Not passed yet"}: {right} of {quizQuestions.length}
+          {passed ? "Passed" : "Not passed yet"}: {result.correct} of {result.total}
         </h1>
         <Progress
-          value={pct}
+          value={result.score}
           className="mt-3"
-          aria-label={`Score ${String(pct)} %`}
+          aria-label={`Score ${String(result.score)} %`}
           indicatorClassName={passed ? "" : "bg-red"}
         />
         <p className="mt-2 text-sm text-ink-soft">
-          {`${String(pct)} %, ${String(pass)} % to pass. `}
-          {passed ? `+${String(xp)} XP, your first pass.` : "Read the explanations, then try again."}
+          {`${String(result.score)} %, ${String(attempt.pass)} % to pass. `}
+          {!passed
+            ? "Read the explanations, then try again."
+            : result.xp
+              ? `+${String(result.xp)} XP, your first pass.`
+              : `Passed again; the ${String(xp)} XP came with your first pass.`}
         </p>
         <div className="mt-4 flex flex-wrap gap-3">
-          <Button variant="outline" className="bg-surface" onClick={onRetake}>
+          <Button variant="outline" className="bg-surface" disabled={retaking} onClick={onRetake}>
             <RotateCcw aria-hidden /> Retake quiz
           </Button>
           {next}
@@ -331,40 +439,46 @@ function Results({
       </div>
 
       <ol className="mt-8 space-y-4">
-        {quizQuestions.map((q, i) => {
-          const mine = answers[q.id] ?? [];
-          const ok = same(mine, q.answer);
+        {result.questions.map((r, i) => {
+          const q = questions.get(r.id);
+          const text = (ids: number[]) =>
+            ids.map((n) => q?.choices.find((c) => c.index === n)?.text ?? String(n)).join(", ");
           return (
-            <li key={q.id} className="rounded-lg border border-rule/30 p-4">
-              <p className="flex gap-3">
-                {ok ? (
+            <li key={r.id} className="rounded-lg border border-rule/30 p-4">
+              <div className="flex gap-3">
+                {r.correct ? (
                   <Check aria-label="Right" className="mt-0.5 size-5 shrink-0 text-green" strokeWidth={3} />
                 ) : (
                   <X aria-label="Wrong" className="mt-0.5 size-5 shrink-0 text-red" strokeWidth={3} />
                 )}
-                <span className="font-semibold">
-                  {i + 1}. {q.prompt}
-                </span>
-              </p>
+                <div className="flex gap-1.5 font-semibold">
+                  <span>{i + 1}.</span>
+                  <Markdown variant="compact">{q?.prompt ?? r.id}</Markdown>
+                </div>
+              </div>
               <dl className="mt-2 space-y-1 pl-8 text-sm">
                 <div>
                   <dt className="inline text-ink-soft">You chose: </dt>
-                  <dd className="inline">
-                    {mine.length ? mine.map((m) => q.choices[m]).join(", ") : "nothing (skipped)"}
-                  </dd>
+                  <dd className="inline">{r.given.length ? text(r.given) : "nothing (skipped)"}</dd>
                 </div>
-                {ok ? null : (
+                {r.correct ? null : (
                   <div>
                     <dt className="inline text-ink-soft">Answer: </dt>
-                    <dd className="inline font-semibold">{q.answer.map((m) => q.choices[m]).join(", ")}</dd>
+                    <dd className="inline font-semibold">{text(r.answer)}</dd>
                   </div>
                 )}
               </dl>
-              <p className="mt-2 pl-8 leading-relaxed text-ink-soft">{q.explain}</p>
-              {q.see && !ok ? (
+              <Markdown variant="compact" className="mt-2 pl-8 text-ink-soft">
+                {r.explain}
+              </Markdown>
+              {r.see && !r.correct ? (
                 <p className="mt-1 pl-8 text-sm">
-                  <Link to="." className="underline underline-offset-4">
-                    Review {q.see}
+                  <Link
+                    to="/learn/$course/$item"
+                    params={{ course, item: r.see }}
+                    className="underline underline-offset-4"
+                  >
+                    Review {lectures.get(r.see) ?? r.see}
                   </Link>
                 </p>
               ) : null}
@@ -374,4 +488,10 @@ function Results({
       </ol>
     </section>
   );
+}
+
+/** The course's item titles by id (the player has the course cached already). */
+function useLectureTitles(course: string) {
+  const { data } = useQuery(queries.course(course));
+  return new Map((data?.sections ?? []).flatMap((s) => s.items.map((i) => [i.id, i.title] as const)));
 }

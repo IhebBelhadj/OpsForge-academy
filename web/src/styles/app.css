@@ -255,6 +255,19 @@
 
 /* Lecture text (design.md §3): serif, at most 70 characters a line; UI elements inside (alerts, tables, code)
    keep their own fonts */
+.prose-compact {
+  @apply leading-relaxed;
+  & > * + * {
+    @apply mt-3;
+  }
+  & ul {
+    @apply list-disc pl-6;
+  }
+  & ol {
+    @apply list-decimal pl-6;
+  }
+}
+
 .prose-lecture {
   @apply font-serif text-[1.125rem] leading-[1.7];
   & > * + * {

@@ -104,10 +104,15 @@ const components: Components = {
   },
 };
 
-/** Pack Markdown as reading text: GitHub-flavoured (tables, task lists), alerts, highlighted code with Copy. */
-export function Markdown({ children, className }: { children: string } & Pick<ComponentProps<"div">, "className">) {
+/** Pack Markdown as reading text: GitHub-flavoured (tables, task lists), alerts, highlighted code with Copy. The
+ * `compact` variant is for short texts in the interface (quiz prompts and explanations): sans, tighter. */
+export function Markdown({
+  children,
+  className,
+  variant = "lecture",
+}: { children: string; variant?: "lecture" | "compact" } & Pick<ComponentProps<"div">, "className">) {
   return (
-    <div className={cn("prose-lecture", className)}>
+    <div className={cn(variant === "lecture" ? "prose-lecture" : "prose-compact", className)}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm, remarkAlerts]}
         rehypePlugins={[[rehypeSanitize, schema]]}

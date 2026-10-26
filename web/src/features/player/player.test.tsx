@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import { renderRoute } from "@/test/render";
+import { startQuizAttempt } from "@/test/server";
 
 vi.mock("@/features/lecture/highlight", () => ({ highlight: () => Promise.resolve(null) }));
 
@@ -45,21 +46,47 @@ describe("the course player", () => {
     });
   });
 
-  it("takes a quiz: intro, one question at a time, then itemised results", async () => {
+  it("takes a quiz on the server: intro, one question at a time, results, then a retake that passes", async () => {
     const user = userEvent.setup();
     renderRoute("/learn/k8s-intro/pods-check");
-    expect(await screen.findByText("Questions")).toBeInTheDocument();
+    expect(await screen.findByText("No attempts yet.")).toBeInTheDocument();
     expect(screen.getByText("70 %")).toBeInTheDocument();
     expect(screen.getByText("No limit")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Start quiz" }));
-    await user.click(screen.getByRole("radio", { name: "The kubelet, through the container runtime" }));
+    expect(await screen.findByText("Question 1 of 2")).toBeInTheDocument();
+    await user.click(screen.getByRole("radio", { name: "Nothing" }));
     expect(screen.getByRole("button", { name: "Question 1, answered" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /Next/ }));
-    expect(screen.getByText("Question 2 of 5")).toBeInTheDocument();
+    expect(screen.getByText("Select all that apply")).toBeInTheDocument();
+    for (const phase of ["Pending", "Running", "Succeeded"])
+      await user.click(screen.getByRole("checkbox", { name: phase }));
     await user.click(screen.getByRole("button", { name: "Submit quiz" }));
-    expect(screen.getByRole("heading", { name: "Not passed yet: 1 of 5" })).toBeInTheDocument();
-    expect(screen.getAllByLabelText("Wrong")).toHaveLength(4);
-    expect(screen.getByRole("button", { name: /Retake quiz/ })).toBeInTheDocument();
+
+    expect(await screen.findByRole("heading", { name: "Not passed yet: 1 of 2" })).toBeInTheDocument();
+    expect(screen.getAllByLabelText("Wrong")).toHaveLength(1);
+    expect(screen.getByText("A network namespace")).toBeInTheDocument(); // the key, revealed by the result
+    expect(screen.getByRole("link", { name: "Review What is a pod" })).toHaveAttribute(
+      "href",
+      "/learn/k8s-intro/what-is-a-pod",
+    );
+
+    await user.click(screen.getByRole("button", { name: /Retake quiz/ }));
+    await user.click(await screen.findByRole("radio", { name: "A network namespace" }));
+    await user.click(screen.getByRole("button", { name: "Question 2, not answered" }));
+    for (const phase of ["Pending", "Running", "Succeeded"])
+      await user.click(screen.getByRole("checkbox", { name: phase }));
+    await user.click(screen.getByRole("button", { name: "Submit quiz" }));
+    expect(await screen.findByRole("heading", { name: "Passed: 2 of 2" })).toBeInTheDocument();
+    expect(screen.getByText(/\+20 XP, your first pass/)).toBeInTheDocument();
+  });
+
+  it("continues an attempt left open, and submits it by itself when its time is up", async () => {
+    const user = userEvent.setup();
+    startQuizAttempt(-1); // its deadline has passed
+    renderRoute("/learn/k8s-intro/pods-check");
+    await user.click(await screen.findByRole("button", { name: "Continue attempt" }));
+    expect(await screen.findByRole("heading", { name: "Not passed yet: 0 of 2" })).toBeInTheDocument();
+    expect(screen.getAllByText("nothing (skipped)")).toHaveLength(2);
   });
 
   it("runs a lab: start, setup, a failed check with what was wanted, then the next step", async () => {

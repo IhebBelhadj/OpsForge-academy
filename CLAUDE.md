@@ -155,16 +155,18 @@ the history re-imported, the six labs passed again on it. **Next:** M2 (the cour
   lecture,quiz,lab,challenge,editor,terminal,labmap}`): routes `/` (home), `/roadmap`, `/courses`, `/courses/$course`,
   `/practice`, `/profile`, `/settings`, `/learn/$course/$item` (the player brings its own chrome; the root shell steps
   aside for `/learn/`; labs and challenges fill the window and fold the course content away). Data the API has no
-  endpoint for yet comes from `web/src/mock/` (one import per screen, replaced by a query when its module lands; the
-  mock quiz keys exist only because nothing is scored server-side yet). The editor and terminal are placeholders with
+  endpoint for yet comes from `web/src/mock/` (one import per screen, replaced by a query when its module lands). The editor and terminal are placeholders with
   Monaco's and xterm's props (`CodeEditor`, `TerminalPane`). jsdom lays out at 0×0, so react-resizable-panels takes
   any click inside a panel for a divider grab: tests focus inputs directly. The theme is a store (`useTheme`,
   `setTheme`) shared by the header toggle and settings. `pnpm dev`'s proxy sends the platform's Host and Origin. The API client
   (`src/api/client.ts`) opens the session itself (GET /me, else POST /sessions), adds `X-CSRF-Token` to changes and
   repeats a read once after a 401; `queries.*` reject with `ProblemError` (not retried below 500). Lecture Markdown:
   react-markdown + remark-gfm + rehype-sanitize (no raw HTML; `[!NOTE]` alerts via `data-alert`), Shiki through
-  `shiki/core` with the languages listed in `highlight.ts` (the full bundle adds 13 MB to the binary). Quiz, lab and
-  challenge items run full screens on mock runtime data until their backends exist. Page tests render the whole route tree with
+  `shiki/core` with the languages listed in `highlight.ts` (the full bundle adds 13 MB to the binary). The quiz runs on
+  the quiz API (`queries.quizAttempts`, `actions.startQuiz/quizAttempt/submitQuiz`: changes are `actions.*` for
+  `useMutation`; the timer submits by itself at the deadline, the server allows 5 s grace); lab and challenge items run
+  on mock runtime data until their screens are hooked up. Quiz prompts and explanations are Markdown (`Markdown
+  variant="compact"`: sans, not the lecture serif). Page tests render the whole route tree with
   `renderRoute(path)` against MSW fixtures (`src/test/server.ts`, the demo course); `src/test/setup.ts` stubs what
   jsdom lacks (matchMedia, pointer capture, scrollIntoView). The e2e suite serves
   `academy/testdata/packs` (`--content`; the fake OpsForge finds every step valid). Phones (< 900 px): the course content is a drawer that closes on a choice.

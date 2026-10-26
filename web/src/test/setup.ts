@@ -5,7 +5,7 @@ import { afterAll, afterEach, beforeAll } from "vitest";
 
 import { forgetSession } from "@/api/client";
 
-import { server } from "./server";
+import { resetQuizAttempts, server } from "./server";
 
 // A whole route's first render (lazy chunks, MSW) can take over a second on a loaded machine
 configure({ asyncUtilTimeout: 3000 });
@@ -43,6 +43,7 @@ beforeAll(() => {
 afterEach(() => {
   cleanup();
   server.resetHandlers();
+  resetQuizAttempts();
   forgetSession();
 });
 afterAll(() => {
