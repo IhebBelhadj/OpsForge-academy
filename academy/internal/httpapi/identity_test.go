@@ -6,26 +6,27 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/IhebBelhadj/opsforge-academy/academy/internal/platform/postgres/pgtest"
+
 	"github.com/IhebBelhadj/opsforge-academy/academy/internal/httpapi"
 	"github.com/IhebBelhadj/opsforge-academy/academy/internal/identity"
-	identitysqlite "github.com/IhebBelhadj/opsforge-academy/academy/internal/identity/sqlite"
+	identitypg "github.com/IhebBelhadj/opsforge-academy/academy/internal/identity/postgres"
 	"github.com/IhebBelhadj/opsforge-academy/academy/internal/platform"
-	"github.com/IhebBelhadj/opsforge-academy/academy/internal/platform/sqlite"
+	"github.com/IhebBelhadj/opsforge-academy/academy/internal/platform/postgres"
 )
 
 // identities is the real identity service on a temporary database.
 func identities(t *testing.T) *identity.Service {
 	t.Helper()
-	store, err := sqlite.Open(context.Background(), filepath.Join(t.TempDir(), "academy.db"), platform.SystemClock{})
+	store, err := postgres.Open(context.Background(), pgtest.URL(t), platform.SystemClock{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = store.Close() })
-	return identity.NewService(identitysqlite.NewRepo(store.DB), platform.SystemClock{})
+	return identity.NewService(identitypg.NewRepo(store.DB), platform.SystemClock{})
 }
 
 // browser is a signed-in page: its cookie jar holds the session, csrf is what the page keeps in memory.

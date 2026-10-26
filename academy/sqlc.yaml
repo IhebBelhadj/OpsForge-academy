@@ -1,83 +1,88 @@
-# sqlc: typed Go for each module's queries.sql (make gen). Queries stay portable SQL (docs/courses/architecture.md).
+# sqlc: typed Go for each module's queries.sql on PostgreSQL (make gen), database/sql over the pgx/v5 driver.
 version: "2"
 sql:
-  - engine: sqlite
+  - engine: postgresql
     schema: migrations
-    queries: internal/platform/sqlite/queries.sql
+    queries: internal/platform/postgres/queries.sql
     gen:
       go: &go
-        package: sqlite
-        out: internal/platform/sqlite
+        package: postgres
+        out: internal/platform/postgres
         output_db_file_name: db.gen.go
         output_models_file_name: models.gen.go
         output_files_suffix: .gen
-  - engine: sqlite
+        overrides:
+          # a document that may be absent: nil is NULL (a named []byte type cannot scan NULL)
+          - db_type: jsonb
+            nullable: true
+            go_type: { type: "[]byte" }
+  - engine: postgresql
     schema: migrations
-    queries: internal/identity/sqlite/queries.sql
+    queries: internal/identity/postgres/queries.sql
     gen:
       go:
         <<: *go
-        out: internal/identity/sqlite
-  - engine: sqlite
+        out: internal/identity/postgres
+  - engine: postgresql
     schema: migrations
-    queries: internal/catalog/sqlite/queries.sql
+    queries: internal/catalog/postgres/queries.sql
     gen:
       go:
         <<: *go
-        out: internal/catalog/sqlite
-  - engine: sqlite
+        out: internal/catalog/postgres
+  - engine: postgresql
     schema: migrations
-    queries: internal/history/sqlite/queries.sql
+    queries: internal/history/postgres/queries.sql
     gen:
       go:
         <<: *go
-        out: internal/history/sqlite
-  - engine: sqlite
+        out: internal/history/postgres
+  - engine: postgresql
     schema: migrations
-    queries: internal/progress/sqlite/queries.sql
+    queries: internal/progress/postgres/queries.sql
     gen:
       go:
         <<: *go
-        out: internal/progress/sqlite
-  - engine: sqlite
+        out: internal/progress/postgres
+  - engine: postgresql
     schema: migrations
-    queries: internal/quiz/sqlite/queries.sql
+    queries: internal/quiz/postgres/queries.sql
     gen:
       go:
         <<: *go
-        out: internal/quiz/sqlite
-  - engine: sqlite
+        out: internal/quiz/postgres
+  - engine: postgresql
     schema: migrations
-    queries: internal/operations/sqlite/queries.sql
+    queries: internal/operations/postgres/queries.sql
     gen:
       go:
         <<: *go
-        out: internal/operations/sqlite
-  - engine: sqlite
+        out: internal/operations/postgres
+  - engine: postgresql
     schema: migrations
-    queries: internal/workspace/sqlite/queries.sql
+    queries: internal/workspace/postgres/queries.sql
     gen:
       go:
         <<: *go
-        out: internal/workspace/sqlite
-  - engine: sqlite
+        out: internal/workspace/postgres
+  - engine: postgresql
     schema: migrations
-    queries: internal/labsession/sqlite/queries.sql
+    queries: internal/labsession/postgres/queries.sql
     gen:
       go:
         <<: *go
-        out: internal/labsession/sqlite
-  - engine: sqlite
+        out: internal/labsession/postgres
+  - engine: postgresql
     schema: migrations
-    queries: internal/rewards/sqlite/queries.sql
+    queries: internal/rewards/postgres/queries.sql
     gen:
       go:
         <<: *go
-        out: internal/rewards/sqlite
-  - engine: sqlite
+        out: internal/rewards/postgres
+  - engine: postgresql
     schema: migrations
-    queries: internal/legacy/sqlite/queries.sql
+    queries: internal/legacy/postgres/queries.sql
     gen:
       go:
         <<: *go
-        out: internal/legacy/sqlite
+        out: internal/legacy/postgres

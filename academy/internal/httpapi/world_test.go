@@ -6,44 +6,45 @@ import (
 	"io"
 	"log/slog"
 	"os"
-	"path/filepath"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/IhebBelhadj/opsforge-academy/academy/internal/platform/postgres/pgtest"
+
 	"github.com/IhebBelhadj/opsforge-academy/academy/internal/catalog"
-	catalogsqlite "github.com/IhebBelhadj/opsforge-academy/academy/internal/catalog/sqlite"
+	catalogpg "github.com/IhebBelhadj/opsforge-academy/academy/internal/catalog/postgres"
 	"github.com/IhebBelhadj/opsforge-academy/academy/internal/contentimport"
 	"github.com/IhebBelhadj/opsforge-academy/academy/internal/history"
-	historysqlite "github.com/IhebBelhadj/opsforge-academy/academy/internal/history/sqlite"
+	historypg "github.com/IhebBelhadj/opsforge-academy/academy/internal/history/postgres"
 	"github.com/IhebBelhadj/opsforge-academy/academy/internal/httpapi"
 	"github.com/IhebBelhadj/opsforge-academy/academy/internal/identity"
-	identitysqlite "github.com/IhebBelhadj/opsforge-academy/academy/internal/identity/sqlite"
+	identitypg "github.com/IhebBelhadj/opsforge-academy/academy/internal/identity/postgres"
 	"github.com/IhebBelhadj/opsforge-academy/academy/internal/lab"
 	"github.com/IhebBelhadj/opsforge-academy/academy/internal/labsession"
-	labsqlite "github.com/IhebBelhadj/opsforge-academy/academy/internal/labsession/sqlite"
+	labpg "github.com/IhebBelhadj/opsforge-academy/academy/internal/labsession/postgres"
 	"github.com/IhebBelhadj/opsforge-academy/academy/internal/labstate"
 	"github.com/IhebBelhadj/opsforge-academy/academy/internal/operations"
-	operationssqlite "github.com/IhebBelhadj/opsforge-academy/academy/internal/operations/sqlite"
+	operationspg "github.com/IhebBelhadj/opsforge-academy/academy/internal/operations/postgres"
 	"github.com/IhebBelhadj/opsforge-academy/academy/internal/opsforgeapi"
 	"github.com/IhebBelhadj/opsforge-academy/academy/internal/opsforgeapi/opsforgefake"
 	"github.com/IhebBelhadj/opsforge-academy/academy/internal/platform"
-	"github.com/IhebBelhadj/opsforge-academy/academy/internal/platform/sqlite"
+	"github.com/IhebBelhadj/opsforge-academy/academy/internal/platform/postgres"
 	"github.com/IhebBelhadj/opsforge-academy/academy/internal/progress"
-	progresssqlite "github.com/IhebBelhadj/opsforge-academy/academy/internal/progress/sqlite"
+	progresspg "github.com/IhebBelhadj/opsforge-academy/academy/internal/progress/postgres"
 	"github.com/IhebBelhadj/opsforge-academy/academy/internal/quiz"
-	quizsqlite "github.com/IhebBelhadj/opsforge-academy/academy/internal/quiz/sqlite"
+	quizpg "github.com/IhebBelhadj/opsforge-academy/academy/internal/quiz/postgres"
 	"github.com/IhebBelhadj/opsforge-academy/academy/internal/rewards"
-	rewardssqlite "github.com/IhebBelhadj/opsforge-academy/academy/internal/rewards/sqlite"
+	rewardspg "github.com/IhebBelhadj/opsforge-academy/academy/internal/rewards/postgres"
 	"github.com/IhebBelhadj/opsforge-academy/academy/internal/terminal"
 	"github.com/IhebBelhadj/opsforge-academy/academy/internal/workspace"
-	workspacesqlite "github.com/IhebBelhadj/opsforge-academy/academy/internal/workspace/sqlite"
+	workspacepg "github.com/IhebBelhadj/opsforge-academy/academy/internal/workspace/postgres"
 )
 
 // world is the modules that keep learner state, on one temporary database (their tables refer to users) holding
 // the golden bundle's catalogue, with the real event bus and hub.
 type world struct {
-	store    *sqlite.Store
+	store    *postgres.Store
 	hub      *platform.Hub
 	history  *history.Service
 	catalog  *catalog.Service
@@ -121,7 +122,7 @@ func (inOrder) Perm(n int) []int {
 
 func newWorld(t *testing.T) *world {
 	t.Helper()
-	store, err := sqlite.Open(context.Background(), filepath.Join(t.TempDir(), "academy.db"), platform.SystemClock{})
+	store, err := postgres.Open(context.Background(), pgtest.URL(t), platform.SystemClock{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -138,15 +139,15 @@ func newWorld(t *testing.T) *world {
 	}
 	entries = append(entries, catalog.Entry{Kind: catalog.KindLab, Key: "quiz-lab", PackID: "demo", Title: "Quiz lab",
 		Hash: "QL", Doc: []byte(quizLab)})
-	repo := catalogsqlite.NewRepo(store.DB)
+	repo := catalogpg.NewRepo(store.DB)
 	if err := repo.Apply(context.Background(), entries, nil, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	clock := platform.SystemClock{}
 	w := &world{store: store, hub: hub, catalog: catalog.NewService(repo),
-		history: history.NewService(historysqlite.NewRepo(store.DB), hub, clock, log)}
-	w.quizzes = quiz.NewService(quizsqlite.NewRepo(store.DB), w.catalog, w.history, inOrder{}, clock)
+		history: history.NewService(historypg.NewRepo(store.DB), hub, clock, log)}
+	w.quizzes = quiz.NewService(quizpg.NewRepo(store.DB), w.catalog, w.history, inOrder{}, clock)
 	// As cmd/academy adapts them
 	quizzes := progress.SourceFunc(func(ctx context.Context, user int64) ([]progress.Completion, error) {
 		passed, err := w.quizzes.Passed(ctx, user)
@@ -157,12 +158,12 @@ func newWorld(t *testing.T) *world {
 		}
 		return out, err
 	})
-	w.ops = operations.NewService(operationssqlite.NewRepo(store.DB), hub, clock, log)
+	w.ops = operations.NewService(operationspg.NewRepo(store.DB), hub, clock, log)
 	w.opsforge, w.client = fakeOpsForge(t)
 	w.terminals, _ = shells(t, w.client)
-	w.spaces = workspace.NewService(w.client.Files(), workspacesqlite.NewRepo(store.DB), clock)
+	w.spaces = workspace.NewService(w.client.Files(), workspacepg.NewRepo(store.DB), clock)
 	w.lab = &scriptedLab{}
-	w.labs = labsession.NewService(labsqlite.NewRepo(store.DB), w.catalog, w.client.Sandboxes(), w.spaces, w.ops,
+	w.labs = labsession.NewService(labpg.NewRepo(store.DB), w.catalog, w.client.Sandboxes(), w.spaces, w.ops,
 		w.history, clock)
 	t.Cleanup(func() { _ = w.ops.Wait(context.Background()) })
 	labs := progress.SourceFunc(func(ctx context.Context, user int64) ([]progress.Completion, error) {
@@ -173,11 +174,11 @@ func newWorld(t *testing.T) *world {
 		}
 		return out, err
 	})
-	w.progress = progress.NewService(progresssqlite.NewRepo(store.DB), w.catalog, w.history, clock,
+	w.progress = progress.NewService(progresspg.NewRepo(store.DB), w.catalog, w.history, clock,
 		progress.Sources{quizzes, labs})
 	w.history.Subscribe(w.progress.OnEvent)
-	ids := identity.NewService(identitysqlite.NewRepo(store.DB), clock)
-	w.rewards = rewards.NewService(rewardssqlite.NewRepo(store.DB), w.catalog, rewardSources(w.labs, w.quizzes,
+	ids := identity.NewService(identitypg.NewRepo(store.DB), clock)
+	w.rewards = rewards.NewService(rewardspg.NewRepo(store.DB), w.catalog, rewardSources(w.labs, w.quizzes,
 		w.progress, ids), w.history, clock, log)
 	w.history.Subscribe(w.rewards.OnEvent)
 	w.state = labstate.NewService(w.lab, clock)
@@ -212,7 +213,7 @@ func rewardSources(labs *labsession.Service, quizzes *quiz.Service, learning *pr
 
 // deps serves the world: identity on its database, the history and the event streams.
 func (w *world) deps(d *httpapi.Deps) {
-	d.Identity = identity.NewService(identitysqlite.NewRepo(w.store.DB), platform.SystemClock{})
+	d.Identity = identity.NewService(identitypg.NewRepo(w.store.DB), platform.SystemClock{})
 	d.History = w.history
 	d.Streams = w.hub
 	d.Catalog = w.catalog

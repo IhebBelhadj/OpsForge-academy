@@ -12,15 +12,18 @@ import (
 	"net"
 	"net/url"
 	"path/filepath"
+	"strings"
 	"time"
+
+	"github.com/IhebBelhadj/opsforge-academy/academy/internal/platform/postgres"
 )
 
 // Config is injected like any dependency (cmd/academy/wire.go).
 type Config struct {
 	Addr              string        // HTTP listen address; loopback only (the terminal is a shell)
-	Data              string        // Academy's own state: the database, OpsForge's token
+	Data              string        // Academy's own files: OpsForge's token
 	Content           string        // the content folder: one pack per sub-folder with a pack.yml
-	DB                string        // SQLite database
+	Database          string        // the PostgreSQL database's URL
 	OpsForgeURL       string        // OpsForge's API (`opsforge api serve`)
 	OpsForgeTokenFile string        // a copy of OpsForge's .opsforge/api-token
 	OpsForgeCAFile    string        // PEM certificates to trust for OpsForge's https (a self-signed one); optional
@@ -74,7 +77,8 @@ func load(command string, args []string, getenv func(string) string) (Config, Co
 		fs.BoolVar(&compile.JSON, "json", false, "print the bundle")
 	}
 	addr := fs.String("addr", or("ACADEMY_ADDR", "127.0.0.1:8090"), "listen address, loopback only (ACADEMY_ADDR)")
-	db := fs.String("db", getenv("ACADEMY_DB"), "SQLite database (ACADEMY_DB, default <data>/academy.db)")
+	database := fs.String("database", or("ACADEMY_DATABASE_URL", postgres.DefaultURL),
+		"PostgreSQL database URL, created if missing (ACADEMY_DATABASE_URL; default: `make db`'s container)")
 	opsforgeURL := fs.String("opsforge-url", or("ACADEMY_OPSFORGE_URL", "http://127.0.0.1:8091"),
 		"OpsForge's API, `opsforge api serve` (ACADEMY_OPSFORGE_URL)")
 	tokenFile := fs.String("opsforge-token-file", getenv("ACADEMY_OPSFORGE_TOKEN_FILE"),
@@ -98,7 +102,7 @@ func load(command string, args []string, getenv func(string) string) (Config, Co
 		return Config{}, compile, fmt.Errorf("unexpected arguments: %v", fs.Args())
 	}
 
-	cfg := Config{Addr: *addr, OpsForgeURL: *opsforgeURL, OpsForgeTimeout: *opsforgeTimeout, LabTimeout: *labTimeout,
+	cfg := Config{Addr: *addr, Database: *database, OpsForgeURL: *opsforgeURL, OpsForgeTimeout: *opsforgeTimeout, LabTimeout: *labTimeout,
 		ShutdownTimeout: *shutdownTimeout}
 	for _, f := range []struct {
 		name, in string
@@ -106,7 +110,7 @@ func load(command string, args []string, getenv func(string) string) (Config, Co
 		fallback string // under the data folder
 	}{
 		{"data", *data, &cfg.Data, ""}, {"content", *content, &cfg.Content, ""},
-		{"db", *db, &cfg.DB, "academy.db"}, {"opsforge-token-file", *tokenFile, &cfg.OpsForgeTokenFile, "opsforge-token"},
+		{"opsforge-token-file", *tokenFile, &cfg.OpsForgeTokenFile, "opsforge-token"},
 		{"opsforge-ca-file", *caFile, &cfg.OpsForgeCAFile, ""}, {"legacy-db", *legacyDB, &cfg.LegacyDB, ""},
 	} {
 		in := f.in
@@ -145,6 +149,10 @@ func (c Config) validate() error {
 		return fmt.Errorf("addr %q: must be a loopback address (127.0.0.1 or localhost)", c.Addr)
 	}
 	var errs []error
+	if d, err := url.Parse(c.Database); err != nil || (d.Scheme != "postgres" && d.Scheme != "postgresql") ||
+		d.Host == "" || strings.Trim(d.Path, "/") == "" {
+		errs = append(errs, fmt.Errorf("database: not a postgres://host/name URL"))
+	}
 	u, err := url.Parse(c.OpsForgeURL)
 	switch {
 	case err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "":

@@ -41,8 +41,10 @@ linters:
               desc: the domain knows no storage
             - pkg: os/exec
               desc: the domain knows no toolchain
-            - pkg: github.com/IhebBelhadj/opsforge-academy/academy/internal/platform/sqlite
+            - pkg: github.com/IhebBelhadj/opsforge-academy/academy/internal/platform/postgres
               desc: the domain knows no adapter
+            - pkg: github.com/jackc/pgx/v5
+              desc: the domain knows no storage
             - pkg: github.com/IhebBelhadj/opsforge-academy/academy/internal/opsforgeapi
               desc: the domain knows no adapter
         services-use-ports:
@@ -52,8 +54,10 @@ linters:
               desc: services use their repository port
             - pkg: os/exec
               desc: services use the LabController port
-            - pkg: github.com/IhebBelhadj/opsforge-academy/academy/internal/platform/sqlite
+            - pkg: github.com/IhebBelhadj/opsforge-academy/academy/internal/platform/postgres
               desc: adapters are injected, not imported
+            - pkg: github.com/jackc/pgx/v5
+              desc: services use their repository port
             - pkg: github.com/IhebBelhadj/opsforge-academy/academy/internal/opsforgeapi
               desc: adapters are injected, not imported
         lab-documents-are-pure:

@@ -6,6 +6,19 @@ OpsForge range it supports (its API contract: `academy/contract/PINNED`). Histor
 
 ## Unreleased
 
+- **PostgreSQL (2026-10-26, split step 8):** the platform's database is PostgreSQL; no SQLite left but the reader of
+  Phase 10's `labs.db`. `make db` runs it in Docker (`academy-pg`, `postgres:16-alpine`, 127.0.0.1:5433, volume
+  `academy-pg`); `--db` is now `--database` / `ACADEMY_DATABASE_URL` (created if missing). The 11 SQLite migrations
+  are one baseline (`timestamptz`, identity ids, booleans, `jsonb` documents; the attempts' `workspace` column is now
+  `sandbox`); module adapters moved to `internal/<module>/postgres` (sqlc's `postgresql` engine, database/sql over
+  pgx/v5). Tests run on a database each, cloned from a migrated template (`pgtest`); CI has a Postgres service; e2e
+  uses `academy_e2e` (`cmd/dbreset` drops it first). Documents are compared as JSON values (`catalog.SameJSON`): jsonb
+  normalizes them. Acceptance (2026-10-26): `make check` and `make e2e` (16/16) green on PostgreSQL;
+  `migrate-legacy` from Phase 10's `labs.db` gives 9 attempts, 62 events and 6 awards, then nothing the second time,
+  and Academy reads 800 XP and 6/6 badges, as on SQLite; importing the packs twice writes nothing; the six core labs
+  passed live again (16, 8, 24, 5, 18, 174 s), no sandbox left, `verify` green. Academy 23-26 MiB RSS, PostgreSQL
+  20 MiB idle, 58 MiB after the run. Your SQLite `academy.db` (data folder) is no longer read.
+
 ## 0.1.0 (2026-10-26)
 
 The first release: M0 and M1 (in OpsForge's `docs/PLAN.md`), its own repository, and every lab attempt in an

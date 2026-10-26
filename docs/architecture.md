@@ -8,7 +8,7 @@
   (same       ├─ /api/v1/*   REST (OpenAPI 3.1)                    ├─ /v1/version, /v1/state, /v1/heal
    origin)    ├─ /api/v1/events  SSE                               ├─ /v1/steps/validate
               ├─ /ws/terminal/*  WebSocket ──────┐                 ├─ /v1/sandboxes[/{id}]   create (setup) · delete
-              ├─ database (SQLite → PostgreSQL)  │  HTTP + WS      │    ├─ /files/...        the sandbox's workspace
+              ├─ database (PostgreSQL)           │  HTTP + WS      │    ├─ /files/...        the sandbox's workspace
               ├─ content packs (labs/, compiled  ├── a URL and ──▶ │    ├─ /terminal         bash in it (WebSocket)
               │   in-process)                    │   a token       │    ├─ /probes, /actions, /reset   jobs
               └─ internal/opsforgeapi ───────────┘                 │    └─ (namespace sb-<id> on every cluster)
@@ -80,7 +80,7 @@ academy/internal/labsession/
   service.go       type Service interface { Start; Check; Hint; Reset; Abandon } + implementation
   ports.go         AttemptRepo, Sandboxes interfaces (declared where consumed)
   service_test.go  table-driven tests with fakes (written first)
-  sqlite/          AttemptRepo on sqlc queries (+ repo tests on a real temp database)
+  postgres/        AttemptRepo on sqlc queries (+ repo tests on a database of their own)
 ```
 
 ### Dependency injection
@@ -155,14 +155,15 @@ Origin), and Academy's terminal WebSockets are proxied to OpsForge's.
 
 ## Data
 
-- **SQLite** (`academy.db` in Academy's data folder, WAL, foreign keys on) through **`modernc.org/sqlite`** (pure Go, no cgo)
-  until the repository split. SQL stays portable (no SQLite-only functions in queries; JSON columns are text decoded
-  in Go) so PostgreSQL is a driver + migration-dialect change.
-- **PostgreSQL next** (decided 2026-10-25, PLAN.md Phase 11 split step 8): a dedicated Docker container
-  (`academy-pg`, 127.0.0.1 only), relational with `jsonb` for documents (`content.doc`), `pgx/v5`, sqlc's
-  `postgresql` engine, goose's postgres dialect, `timestamptz`; tests on per-test databases cloned from a migrated
-  template. No document database, no ORM.
-- **sqlc** generates typed query methods from `academy/internal/<module>/sqlite/queries.sql`; no runtime ORM.
+- **PostgreSQL** (split step 8, 2026-10-26; SQLite until then): `--database` / `ACADEMY_DATABASE_URL`, created if
+  missing; in development a Docker container of its own (`make db`: `academy-pg`, `postgres:16-alpine`, 127.0.0.1:5433,
+  volume `academy-pg`, `shared_buffers` 16 MB, ~20 MiB idle; outside Incus, so `opsforge down` never touches it).
+  Relational, `jsonb` for documents (content, event data, quiz questions and answers, results), `timestamptz`
+  (microseconds; read back in UTC), identity ids, booleans. database/sql over the `pgx/v5` driver. No document
+  database, no ORM. Documents come back normalized (jsonb keeps no spacing or key order): compare them as JSON
+  (`catalog.SameJSON`), never as bytes.
+- **sqlc** generates typed query methods from `academy/internal/<module>/postgres/queries.sql` (its `postgresql`
+  engine; nullable jsonb is `[]byte`); no runtime ORM.
   Chosen over GORM/ent: explicit SQL, compile-time checked, no reflection, easy to review.
 - **goose** migrations in `academy/migrations/` (embedded), applied at start; never edited once released.
 - Each module owns its tables; cross-module reads go through services (a module's repo never queries another

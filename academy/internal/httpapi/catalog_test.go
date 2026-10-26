@@ -5,17 +5,18 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/IhebBelhadj/opsforge-academy/academy/internal/platform/postgres/pgtest"
+
 	"github.com/IhebBelhadj/opsforge-academy/academy/internal/catalog"
-	catalogsqlite "github.com/IhebBelhadj/opsforge-academy/academy/internal/catalog/sqlite"
+	catalogpg "github.com/IhebBelhadj/opsforge-academy/academy/internal/catalog/postgres"
 	"github.com/IhebBelhadj/opsforge-academy/academy/internal/contentimport"
 	"github.com/IhebBelhadj/opsforge-academy/academy/internal/httpapi"
 	"github.com/IhebBelhadj/opsforge-academy/academy/internal/platform"
-	"github.com/IhebBelhadj/opsforge-academy/academy/internal/platform/sqlite"
+	"github.com/IhebBelhadj/opsforge-academy/academy/internal/platform/postgres"
 )
 
 // withCatalog serves the golden bundle's catalogue from a real database.
@@ -29,12 +30,12 @@ func withCatalog(t *testing.T) func(*httpapi.Deps) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	store, err := sqlite.Open(context.Background(), filepath.Join(t.TempDir(), "academy.db"), platform.SystemClock{})
+	store, err := postgres.Open(context.Background(), pgtest.URL(t), platform.SystemClock{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = store.Close() })
-	repo := catalogsqlite.NewRepo(store.DB)
+	repo := catalogpg.NewRepo(store.DB)
 	if err := repo.Apply(context.Background(), entries, nil, time.Now()); err != nil {
 		t.Fatal(err)
 	}

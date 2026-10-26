@@ -51,7 +51,7 @@ in a **sandbox** OpsForge creates for each lab or challenge attempt, through Ops
 |---|---|---|
 | 1 | Platform backend in **Go**: one static binary (~20 MB RSS), goroutines for terminals/WebSockets/SSE, strict types | architecture.md |
 | 2 | **Modular monolith**, hexagonal (domain, application services, ports, adapters), constructor injection wired by **Wire** | architecture.md |
-| 3 | **SQLite** now (one host), via **sqlc** (type-safe SQL, no runtime ORM) and **goose** migrations; SQL kept portable to PostgreSQL | architecture.md |
+| 3 | **PostgreSQL** (SQLite until split step 8), via **sqlc** (type-safe SQL, no runtime ORM) and **goose** migrations | architecture.md |
 | 4 | **OpenAPI 3.1 first**: `oapi-codegen` generates the Go server interfaces, `openapi-typescript` + `openapi-fetch` the web client | architecture.md |
 | 5 | **Two standalone projects** (2026-10-26): OpsForge owns the lab (topology, scenarios, step execution) and serves a versioned HTTP + WebSocket API; Academy (own repo, compiles its packs in Go) uses it only to get a **sandbox** per lab or challenge attempt, sized by the course's requirements, and works inside it | architecture.md, PLAN.md Phase 11 |
 | 6 | Web app: **React 19 + Vite + TypeScript**, **TanStack Router/Query**, **Tailwind v4 + shadcn/ui**; components from Aceternity UI, Magic UI and shadcn blocks instead of hand-made ones; built into the Go binary (`go:embed`) | frontend.md |

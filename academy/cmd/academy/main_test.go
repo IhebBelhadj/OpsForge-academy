@@ -17,10 +17,12 @@ import (
 	"github.com/IhebBelhadj/opsforge-academy/academy/internal/legacy"
 	"github.com/IhebBelhadj/opsforge-academy/academy/internal/opsforgeapi/opsforgefake"
 	"github.com/IhebBelhadj/opsforge-academy/academy/internal/platform"
+	"github.com/IhebBelhadj/opsforge-academy/academy/internal/platform/postgres"
+	"github.com/IhebBelhadj/opsforge-academy/academy/internal/platform/postgres/pgtest"
 )
 
 // testConfig is the wired application's configuration over a fake OpsForge (its token copied into the data folder),
-// with an empty content folder.
+// a database of its own and an empty content folder.
 func testConfig(t *testing.T, dir string, args ...string) config.Config {
 	t.Helper()
 	fake := httptest.NewServer(opsforgefake.New("token"))
@@ -29,7 +31,8 @@ func testConfig(t *testing.T, dir string, args ...string) config.Config {
 		t.Fatal(err)
 	}
 	cfg, err := config.Load(append([]string{"--addr", "127.0.0.1:0", "--data", dir, "--content",
-		filepath.Join(dir, "content"), "--opsforge-url", fake.URL, "--log-level", "error"}, args...),
+		filepath.Join(dir, "content"), "--opsforge-url", fake.URL, "--database", pgtest.URL(t), "--log-level",
+		"error"}, args...),
 		func(string) string { return "" })
 	if err != nil {
 		t.Fatal(err)
@@ -37,7 +40,7 @@ func testConfig(t *testing.T, dir string, args ...string) config.Config {
 	return cfg
 }
 
-// The wired application end to end: real SQLite in a temp folder, a fake OpsForge, a real listener.
+// The wired application end to end: a real PostgreSQL database, a fake OpsForge, a real listener.
 func TestServeAnswersHealthAndReadinessThenShutsDownCleanly(t *testing.T) {
 	dir := t.TempDir()
 	cfg := testConfig(t, dir)
@@ -76,8 +79,13 @@ func TestServeAnswersHealthAndReadinessThenShutsDownCleanly(t *testing.T) {
 		t.Fatal("no shutdown within 5 s")
 	}
 	cleanup()
-	if _, err := os.Stat(filepath.Join(dir, "academy.db")); err != nil {
+	store, err := postgres.Open(context.Background(), cfg.Database, platform.SystemClock{})
+	if err != nil {
 		t.Fatalf("database: %v", err)
+	}
+	defer func() { _ = store.Close() }()
+	if _, err := store.Queries.GetInstance(context.Background()); err != nil {
+		t.Fatalf("the database has no instance: %v", err)
 	}
 }
 

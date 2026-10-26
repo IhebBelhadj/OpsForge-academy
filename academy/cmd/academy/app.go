@@ -11,34 +11,35 @@ import (
 	"time"
 
 	"github.com/IhebBelhadj/opsforge-academy/academy/internal/catalog"
-	catalogsqlite "github.com/IhebBelhadj/opsforge-academy/academy/internal/catalog/sqlite"
+	catalogpg "github.com/IhebBelhadj/opsforge-academy/academy/internal/catalog/postgres"
 	"github.com/IhebBelhadj/opsforge-academy/academy/internal/compiler"
 	"github.com/IhebBelhadj/opsforge-academy/academy/internal/config"
 	"github.com/IhebBelhadj/opsforge-academy/academy/internal/contentimport"
 	"github.com/IhebBelhadj/opsforge-academy/academy/internal/history"
-	historysqlite "github.com/IhebBelhadj/opsforge-academy/academy/internal/history/sqlite"
+	historypg "github.com/IhebBelhadj/opsforge-academy/academy/internal/history/postgres"
 	"github.com/IhebBelhadj/opsforge-academy/academy/internal/httpapi"
 	"github.com/IhebBelhadj/opsforge-academy/academy/internal/identity"
-	identitysqlite "github.com/IhebBelhadj/opsforge-academy/academy/internal/identity/sqlite"
+	identitypg "github.com/IhebBelhadj/opsforge-academy/academy/internal/identity/postgres"
 	"github.com/IhebBelhadj/opsforge-academy/academy/internal/labsession"
-	labsqlite "github.com/IhebBelhadj/opsforge-academy/academy/internal/labsession/sqlite"
+	labpg "github.com/IhebBelhadj/opsforge-academy/academy/internal/labsession/postgres"
 	"github.com/IhebBelhadj/opsforge-academy/academy/internal/labstate"
 	"github.com/IhebBelhadj/opsforge-academy/academy/internal/legacy"
-	legacysqlite "github.com/IhebBelhadj/opsforge-academy/academy/internal/legacy/sqlite"
+	"github.com/IhebBelhadj/opsforge-academy/academy/internal/legacy/labsdb"
+	legacypg "github.com/IhebBelhadj/opsforge-academy/academy/internal/legacy/postgres"
 	"github.com/IhebBelhadj/opsforge-academy/academy/internal/operations"
-	operationssqlite "github.com/IhebBelhadj/opsforge-academy/academy/internal/operations/sqlite"
+	operationspg "github.com/IhebBelhadj/opsforge-academy/academy/internal/operations/postgres"
 	"github.com/IhebBelhadj/opsforge-academy/academy/internal/opsforgeapi"
 	"github.com/IhebBelhadj/opsforge-academy/academy/internal/platform"
-	"github.com/IhebBelhadj/opsforge-academy/academy/internal/platform/sqlite"
+	"github.com/IhebBelhadj/opsforge-academy/academy/internal/platform/postgres"
 	"github.com/IhebBelhadj/opsforge-academy/academy/internal/progress"
-	progresssqlite "github.com/IhebBelhadj/opsforge-academy/academy/internal/progress/sqlite"
+	progresspg "github.com/IhebBelhadj/opsforge-academy/academy/internal/progress/postgres"
 	"github.com/IhebBelhadj/opsforge-academy/academy/internal/quiz"
-	quizsqlite "github.com/IhebBelhadj/opsforge-academy/academy/internal/quiz/sqlite"
+	quizpg "github.com/IhebBelhadj/opsforge-academy/academy/internal/quiz/postgres"
 	"github.com/IhebBelhadj/opsforge-academy/academy/internal/rewards"
-	rewardssqlite "github.com/IhebBelhadj/opsforge-academy/academy/internal/rewards/sqlite"
+	rewardspg "github.com/IhebBelhadj/opsforge-academy/academy/internal/rewards/postgres"
 	"github.com/IhebBelhadj/opsforge-academy/academy/internal/terminal"
 	"github.com/IhebBelhadj/opsforge-academy/academy/internal/workspace"
-	workspacesqlite "github.com/IhebBelhadj/opsforge-academy/academy/internal/workspace/sqlite"
+	workspacepg "github.com/IhebBelhadj/opsforge-academy/academy/internal/workspace/postgres"
 	"github.com/IhebBelhadj/opsforge-academy/academy/web"
 )
 
@@ -143,8 +144,8 @@ func provideLogger(cfg config.Config) *slog.Logger {
 	return platform.NewLogger(os.Stderr, cfg.LogLevel)
 }
 
-func provideStore(ctx context.Context, cfg config.Config, clock platform.Clock) (*sqlite.Store, func(), error) {
-	store, err := sqlite.Open(ctx, cfg.DB, clock)
+func provideStore(ctx context.Context, cfg config.Config, clock platform.Clock) (*postgres.Store, func(), error) {
+	store, err := postgres.Open(ctx, cfg.Database, clock)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -162,7 +163,7 @@ func provideOpsForge(cfg config.Config) (*opsforgeapi.Client, error) {
 	return c, err
 }
 
-func provideReadiness(store *sqlite.Store, opsforge *opsforgeapi.Client) []httpapi.ReadinessCheck {
+func provideReadiness(store *postgres.Store, opsforge *opsforgeapi.Client) []httpapi.ReadinessCheck {
 	return []httpapi.ReadinessCheck{{Name: "database", Probe: store}, {Name: "opsforge", Probe: opsforge}}
 }
 
@@ -174,8 +175,8 @@ func provideTerminals(opsforge *opsforgeapi.Client) (*terminal.Service, func()) 
 
 func provideShells(svc *terminal.Service) terminal.Shells { return terminal.NewShells(svc) }
 
-func provideIdentity(store *sqlite.Store, clock platform.Clock) *identity.Service {
-	return identity.NewService(identitysqlite.NewRepo(store.DB), clock)
+func provideIdentity(store *postgres.Store, clock platform.Clock) *identity.Service {
+	return identity.NewService(identitypg.NewRepo(store.DB), clock)
 }
 
 func provideHub() (*platform.Hub, func()) {
@@ -183,12 +184,12 @@ func provideHub() (*platform.Hub, func()) {
 	return hub, hub.Close
 }
 
-func provideHistory(store *sqlite.Store, hub *platform.Hub, clock platform.Clock, log *slog.Logger) *history.Service {
-	return history.NewService(historysqlite.NewRepo(store.DB), hub, clock, log)
+func provideHistory(store *postgres.Store, hub *platform.Hub, clock platform.Clock, log *slog.Logger) *history.Service {
+	return history.NewService(historypg.NewRepo(store.DB), hub, clock, log)
 }
 
-func provideCatalogRepo(store *sqlite.Store) *catalogsqlite.Repo {
-	return catalogsqlite.NewRepo(store.DB)
+func provideCatalogRepo(store *postgres.Store) *catalogpg.Repo {
+	return catalogpg.NewRepo(store.DB)
 }
 
 // provideCompiler compiles the content folder's packs; OpsForge checks their scenario steps.
@@ -196,7 +197,7 @@ func provideCompiler(cfg config.Config, opsforge *opsforgeapi.Client, clock plat
 	return compiler.NewService(cfg.Content, opsforge, clock)
 }
 
-func provideImporter(packs *compiler.Service, repo *catalogsqlite.Repo, clock platform.Clock) *contentimport.Service {
+func provideImporter(packs *compiler.Service, repo *catalogpg.Repo, clock platform.Clock) *contentimport.Service {
 	return contentimport.NewService(packs, repo, clock)
 }
 
@@ -226,30 +227,30 @@ func (i *importer) Import(ctx context.Context) (contentimport.Report, error) {
 	return report, nil
 }
 
-func provideCatalog(repo *catalogsqlite.Repo) *catalog.Service { return catalog.NewService(repo) }
+func provideCatalog(repo *catalogpg.Repo) *catalog.Service { return catalog.NewService(repo) }
 
-func provideOperations(store *sqlite.Store, hub *platform.Hub, clock platform.Clock, log *slog.Logger) *operations.Service {
-	return operations.NewService(operationssqlite.NewRepo(store.DB), hub, clock, log)
+func provideOperations(store *postgres.Store, hub *platform.Hub, clock platform.Clock, log *slog.Logger) *operations.Service {
+	return operations.NewService(operationspg.NewRepo(store.DB), hub, clock, log)
 }
 
 // provideWorkspaces keeps the learners' files on the lab host, where their shells run.
-func provideWorkspaces(opsforge *opsforgeapi.Client, store *sqlite.Store, clock platform.Clock) *workspace.Service {
-	return workspace.NewService(opsforge.Files(), workspacesqlite.NewRepo(store.DB), clock)
+func provideWorkspaces(opsforge *opsforgeapi.Client, store *postgres.Store, clock platform.Clock) *workspace.Service {
+	return workspace.NewService(opsforge.Files(), workspacepg.NewRepo(store.DB), clock)
 }
 
-func provideLabs(store *sqlite.Store, courses *catalog.Service, opsforge *opsforgeapi.Client,
+func provideLabs(store *postgres.Store, courses *catalog.Service, opsforge *opsforgeapi.Client,
 	spaces *workspace.Service, ops *operations.Service, events *history.Service, clock platform.Clock) *labsession.Service {
-	return labsession.NewService(labsqlite.NewRepo(store.DB), courses, opsforge.Sandboxes(), spaces, ops, events, clock)
+	return labsession.NewService(labpg.NewRepo(store.DB), courses, opsforge.Sandboxes(), spaces, ops, events, clock)
 }
 
-func provideQuizzes(store *sqlite.Store, courses *catalog.Service, events *history.Service,
+func provideQuizzes(store *postgres.Store, courses *catalog.Service, events *history.Service,
 	clock platform.Clock) *quiz.Service {
-	return quiz.NewService(quizsqlite.NewRepo(store.DB), courses, events, platform.CryptoRandom{}, clock)
+	return quiz.NewService(quizpg.NewRepo(store.DB), courses, events, platform.CryptoRandom{}, clock)
 }
 
 // provideProgress reads the items the other modules complete (passed quiz attempts and labs) and subscribes to the
 // history (a completed course is noticed after the event that completed its last item).
-func provideProgress(store *sqlite.Store, courses *catalog.Service, events *history.Service, clock platform.Clock,
+func provideProgress(store *postgres.Store, courses *catalog.Service, events *history.Service, clock platform.Clock,
 	quizzes *quiz.Service, labs *labsession.Service) *progress.Service {
 	passedQuizzes := progress.SourceFunc(func(ctx context.Context, user int64) ([]progress.Completion, error) {
 		passed, err := quizzes.Passed(ctx, user)
@@ -268,7 +269,7 @@ func provideProgress(store *sqlite.Store, courses *catalog.Service, events *hist
 		}
 		return out, err
 	})
-	svc := progress.NewService(progresssqlite.NewRepo(store.DB), courses, events, clock,
+	svc := progress.NewService(progresspg.NewRepo(store.DB), courses, events, clock,
 		progress.Sources{passedQuizzes, passedLabs})
 	events.Subscribe(svc.OnEvent)
 	return svc
@@ -276,7 +277,7 @@ func provideProgress(store *sqlite.Store, courses *catalog.Service, events *hist
 
 // provideRewards reads the history for the badge rules from the modules that record it (lab and quiz passes,
 // completed courses) and subscribes to the history (an event that may earn a badge evaluates the user's badges).
-func provideRewards(store *sqlite.Store, courses *catalog.Service, events *history.Service, clock platform.Clock,
+func provideRewards(store *postgres.Store, courses *catalog.Service, events *history.Service, clock platform.Clock,
 	log *slog.Logger, labs *labsession.Service, quizzes *quiz.Service, learning *progress.Service,
 	ids *identity.Service) *rewards.Service {
 	sources := rewards.Sources{
@@ -299,7 +300,7 @@ func provideRewards(store *sqlite.Store, courses *catalog.Service, events *histo
 		Courses: learning.CompletedCourses,
 		Users:   ids.UserIDs,
 	}
-	svc := rewards.NewService(rewardssqlite.NewRepo(store.DB), courses, sources, events, clock, log)
+	svc := rewards.NewService(rewardspg.NewRepo(store.DB), courses, sources, events, clock, log)
 	events.Subscribe(svc.OnEvent)
 	return svc
 }
@@ -324,8 +325,8 @@ func provideHandler(build platform.Build, checks []httpapi.ReadinessCheck, shell
 	})
 }
 
-func provideLegacy(store *sqlite.Store) *legacy.Service {
-	return legacy.NewService(legacysqlite.Reader{}, legacysqlite.NewStore(store.DB))
+func provideLegacy(store *postgres.Store) *legacy.Service {
+	return legacy.NewService(labsdb.Reader{}, legacypg.NewStore(store.DB))
 }
 
 func newApp(cfg config.Config, log *slog.Logger, handler http.Handler, terminals *terminal.Service,

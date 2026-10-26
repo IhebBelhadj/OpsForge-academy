@@ -11,7 +11,7 @@ Every feature follows the same loop; a pull request without the first two steps 
    in the acceptance criteria, including the failure rows: another lab running, step out of order, quiz past its
    deadline, path escaping the workspace). It fails.
 3. **Implement** the domain and service until the test passes; then the adapter (repository against a real temp
-   SQLite, the toolchain adapter against a fake `opsforge` script), each with its own tests written first.
+   PostgreSQL database, the OpsForge adapter against its fake API), each with its own tests written first.
 4. **Wire the handler**; the contract test passes.
 5. **UI**: a component test (Vitest + Testing Library + MSW returning spec-valid fixtures) for each state of the
    screen (loading, empty, error, success), then the Playwright journey if the feature is user-visible end to end.
@@ -25,7 +25,7 @@ Red → green → refactor, with refactors only on green. Bugs start as a failin
 | Layer | Tool | What | Runs |
 |---|---|---|---|
 | Domain and services (Go) | `go test`, table-driven, hand-written fakes (no mocking framework), `testing/synctest` for timers | All business rules: unlocks, staleness, scoring, hint costs, one running lab, verdicts, retroactive badges, import idempotency | every commit, `-race`, < 10 s |
-| Repositories (Go) | real SQLite in `t.TempDir()`, goose migrations applied | Queries, constraints (partial unique index), migration up from every released version | every commit |
+| Repositories (Go) | real PostgreSQL: each test on a database of its own, cloned from a migrated template (`pgtest.URL`; `pgtest.Empty`/`Missing` for migrations from scratch), on `make db`'s server or `ACADEMY_TEST_DATABASE_URL` (CI's service) | Queries, constraints (partial unique index), migrations from scratch | every commit |
 | OpsForge adapter (Go) | `opsforgefake` (the API in memory) and `httptest` servers answering fixture documents, TLS with a self-signed certificate; `TestReal*` against a real `opsforge api serve` named by `ACADEMY_OPSFORGE_URL`/`_TOKEN_FILE`/`_CA_FILE` (any machine; skipped without) | Contract parsing, jobs and lost jobs, timeouts, version mismatch, problems, workspaces, terminals | every commit (real API: CI and nightly against OpsForge master) |
 | HTTP (Go) | `httptest` + the real router + services with fake ports; `kin-openapi` response validation | Every endpoint and status code against the spec; Host/Origin/CSRF middleware; problem+json mapping; SSE framing; WebSocket upgrade and pty echo | every commit |
 | Toolchain (Python) | pytest (existing 149 tests) + new tests for `opsforge api` commands | Compile (schema, cross-references, hashes, determinism), probe early stop, apply diagnostics; golden bundle fixture shared with the Go import tests | every commit |

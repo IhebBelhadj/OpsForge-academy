@@ -10,9 +10,22 @@ OPSFORGE_REPO ?= https://github.com/IhebBelhadj/OpsForge.git
 OPSFORGE_REF ?= v1.0.0
 
 .PHONY: check lint-shell lint-yaml academy academy-test academy-lint academy-validate web-deps web-build web-check \
-	gen gen-check e2e contract-check contract-update
+	gen gen-check e2e contract-check contract-update db
 
-check: lint-shell lint-yaml contract-check academy-lint academy-test academy-validate web-check gen-check
+check: db lint-shell lint-yaml contract-check academy-lint academy-test academy-validate web-check gen-check
+
+# The platform's database: PostgreSQL in a Docker container of its own (academy-pg, 127.0.0.1:5433, volume academy-pg;
+# outside Incus, so `opsforge down` never touches it), started if needed. The tests clone a database each from it
+# (internal/platform/postgres/pgtest); with ACADEMY_TEST_DATABASE_URL set (CI's service) they use that server instead.
+DB_IMAGE := postgres:16-alpine
+
+db:
+	@if [ -n "$$ACADEMY_TEST_DATABASE_URL" ]; then exit 0; fi; \
+	docker start academy-pg >/dev/null 2>&1 || docker run -d --name academy-pg -p 127.0.0.1:5433:5432 \
+		-e POSTGRES_USER=academy -e POSTGRES_PASSWORD=academy -e POSTGRES_DB=academy \
+		-v academy-pg:/var/lib/postgresql/data $(DB_IMAGE) -c shared_buffers=16MB -c max_connections=100 >/dev/null; \
+	for _ in $$(seq 30); do docker exec academy-pg pg_isready -U academy -q && exit 0; sleep 1; done; \
+	echo "academy-pg did not become ready (docker logs academy-pg)" >&2; exit 1
 
 lint-shell:
 	$(SHELLCHECK) $(SHELL_SCRIPTS)
@@ -81,6 +94,8 @@ gen-check:
 		diff .gen-before .gen-after; rm -f .gen-before .gen-after; \
 		echo "generated code was stale: make gen rewrote the files above (review and commit them)"; exit 1; }
 
-# End to end: the built binary against the fake OpsForge API (bin/opsforge-fake), driven by Playwright (web/e2e/)
-e2e: academy
+# End to end: the built binary against the fake OpsForge API (bin/opsforge-fake), driven by Playwright (web/e2e/),
+# on a database of its own (academy_e2e, made afresh each run)
+e2e: academy db
+	cd academy && go run ./cmd/dbreset academy_e2e
 	cd web && pnpm e2e

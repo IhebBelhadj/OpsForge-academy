@@ -5,10 +5,15 @@ import { join } from "node:path";
 import { defineConfig, devices } from "@playwright/test";
 
 // The e2e suite drives the real binary (make academy builds it with this web app embedded) against the fake
-// OpsForge API (academy/bin/opsforge-fake: an empty lab, every step valid) and a throwaway data folder.
+// OpsForge API (academy/bin/opsforge-fake: an empty lab, every step valid), a throwaway data folder and its own
+// database, academy_e2e on the test server (`make e2e` drops it first; academy serve creates it).
 const port = 18090;
 const opsforgePort = 18092;
 const data = mkdtempSync(join(tmpdir(), "academy-e2e-"));
+const database = new URL(
+  process.env.ACADEMY_TEST_DATABASE_URL ?? "postgres://academy:academy@127.0.0.1:5433/academy?sslmode=disable",
+);
+database.pathname = "/academy_e2e";
 
 export default defineConfig({
   testDir: "e2e",
@@ -30,7 +35,7 @@ export default defineConfig({
       timeout: 20_000,
     },
     {
-      command: `../academy/bin/academy serve --addr 127.0.0.1:${String(port)} --data ${data} --content ../academy/testdata/packs --opsforge-url http://127.0.0.1:${String(opsforgePort)} --log-level warn`,
+      command: `../academy/bin/academy serve --addr 127.0.0.1:${String(port)} --data ${data} --content ../academy/testdata/packs --opsforge-url http://127.0.0.1:${String(opsforgePort)} --database '${database.toString()}' --log-level warn`,
       url: `http://127.0.0.1:${String(port)}/healthz`,
       reuseExistingServer: false,
       timeout: 20_000,

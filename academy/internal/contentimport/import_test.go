@@ -2,25 +2,26 @@ package contentimport_test
 
 import (
 	"context"
-	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/IhebBelhadj/opsforge-academy/academy/internal/platform/postgres/pgtest"
+
 	"github.com/IhebBelhadj/opsforge-academy/academy/internal/catalog"
-	catalogsqlite "github.com/IhebBelhadj/opsforge-academy/academy/internal/catalog/sqlite"
+	catalogpg "github.com/IhebBelhadj/opsforge-academy/academy/internal/catalog/postgres"
 	"github.com/IhebBelhadj/opsforge-academy/academy/internal/contentimport"
-	"github.com/IhebBelhadj/opsforge-academy/academy/internal/platform/sqlite"
+	"github.com/IhebBelhadj/opsforge-academy/academy/internal/platform/postgres"
 )
 
 // The Phase 10 acceptance on the new stack: the golden bundle imported twice into a real database changes nothing.
 func TestImportTwiceIntoTheDatabase(t *testing.T) {
 	c := &clock{now: time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)}
-	store, err := sqlite.Open(context.Background(), filepath.Join(t.TempDir(), "academy.db"), c)
+	store, err := postgres.Open(context.Background(), pgtest.URL(t), c)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = store.Close() }()
-	repo := catalogsqlite.NewRepo(store.DB)
+	repo := catalogpg.NewRepo(store.DB)
 	svc := contentimport.NewService(&compiler{bundle: golden(t)}, repo, c)
 	ctx := context.Background()
 

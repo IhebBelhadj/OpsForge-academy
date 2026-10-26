@@ -10,26 +10,28 @@ structural changes (architecture, content model, milestones, tests first).
 **Now** (2026-10-26): moved out of OpsForge (its `docs/PLAN.md` Phase 11 holds the history up to here: M0, spike S6,
 M1, split steps 1-6) and **split step 7 done**: every lab attempt runs in an OpsForge sandbox (`labsession` on one
 `Sandboxes` port; the six core labs passed live through them). **Released `v0.1.0`** (2026-10-26) on OpsForge
-`v1.0.0` (contract 1.0, pinned in `academy/contract/PINNED`). **Next:** step 8 (PostgreSQL in Docker), then M2 (player
-and parity).
+`v1.0.0` (contract 1.0, pinned in `academy/contract/PINNED`). **Split step 8 done**: PostgreSQL in Docker (`make db`),
+the history re-imported, the six labs passed again on it. **Next:** M2 (the course player and parity: the screens on
+`web/src/mock/` get their backends).
 
 ## Layout / index
 
 | Path | What it is |
 |---|---|
-| `academy/` | Go platform (module `github.com/IhebBelhadj/opsforge-academy/academy`): `cmd/academy` (main, Wire `wire.go` → `wire_gen.go`), `cmd/opsforge-fake` (OpsForge's API in memory, for e2e), `api/` (`openapi.yaml`, `bundle.schema.json`, the pack formats `course.schema.json` + `labpack.schema.json`, oapi-codegen config), `contract/` (pinned copy of OpsForge's contract + `PINNED`), `internal/{catalog,compiler,config,contentimport,history,httpapi,identity,lab,labsession,labstate,legacy,operations,opsforgeapi,platform,progress,quiz,rewards,terminal,workspace}`, `migrations/` (goose, embedded), `web/dist` (embed target), `testdata/` (golden fixtures, demo pack, `labs.phase10.sql`), `tools/go.mod` (pinned sqlc, oapi-codegen, wire, golangci-lint: `go tool -modfile=tools/go.mod <tool>`), `.golangci.yml` (depguard layering). |
+| `academy/` | Go platform (module `github.com/IhebBelhadj/opsforge-academy/academy`): `cmd/academy` (main, Wire `wire.go` → `wire_gen.go`), `cmd/opsforge-fake` (OpsForge's API in memory, for e2e), `api/` (`openapi.yaml`, `bundle.schema.json`, the pack formats `course.schema.json` + `labpack.schema.json`, oapi-codegen config), `contract/` (pinned copy of OpsForge's contract + `PINNED`), `internal/{catalog,compiler,config,contentimport,history,httpapi,identity,lab,labsession,labstate,legacy,operations,opsforgeapi,platform,progress,quiz,rewards,terminal,workspace}` (adapters in `<module>/postgres`), `cmd/dbreset` (drops a test database), `migrations/` (goose, embedded: one PostgreSQL baseline), `web/dist` (embed target), `testdata/` (golden fixtures, demo pack, `labs.phase10.sql`), `tools/go.mod` (pinned sqlc, oapi-codegen, wire, golangci-lint: `go tool -modfile=tools/go.mod <tool>`), `.golangci.yml` (depguard layering). |
 | `web/` | React 19 + Vite + TS app (pnpm): `src/{app,routes,features,components/ui,api,lib,test,styles}`, `e2e/` (Playwright against the built binary + `academy/bin/opsforge-fake`). `src/api/schema.d.ts` and `src/routeTree.gen.ts` are generated and committed. |
 | `labs/` | Content packs: `<pack>/pack.yml`, `curricula/*.yml`, `labs/<id>.yml` (+ `labs/<id>/files/`), `badges.yml`, `courses/<id>/`, `assets/`. Compiled by `academy compile`. Lab steps are OpsForge's step language (data, checked by its `validate-steps`). |
 | `docs/` | The plan: architecture, frontend, design, content model, Kubernetes syllabus, testing, implementation (milestones). |
 | `scripts/with-opsforge.sh` | Runs a command with `ACADEMY_OPSFORGE_URL`'s API when set, else with a throwaway `opsforge-fake` (warning: steps unchecked); used by `academy-validate`. |
 | `scripts/contract.sh` | `update <repo> <ref>` fetches OpsForge's `contract/` from git into `academy/contract/` + `PINNED` (commit, checksum); `check` verifies the checksum offline. |
-| `Makefile` | `make check` (shellcheck, yamllint, contract-check, Go lint + tests, pack compile, web checks, gen-check), `make academy` (web build embedded → `academy/bin/academy`), `academy-test`, `academy-lint`, `academy-validate`, `web-check`, `gen`, `e2e`, `contract-update`. |
+| `Makefile` | `make db` (the PostgreSQL container), `make check` (shellcheck, yamllint, contract-check, Go lint + tests, pack compile, web checks, gen-check), `make academy` (web build embedded → `academy/bin/academy`), `academy-test`, `academy-lint`, `academy-validate`, `web-check`, `gen`, `e2e`, `contract-update`. |
 | `CHANGELOG.md` | Releases and milestone notes with measurements. |
 
 ## Host facts
 
 - Same host as OpsForge: Arch Linux, 12 threads, 14 GB RAM, and the lab is the RAM budget (Academy idles at ~50 MiB
-  RSS). Go 1.27, Node 22 + pnpm, Playwright browsers in `~/.cache/ms-playwright`. The host is mid-upgrade: no `pacman
+  RSS, its PostgreSQL container ~20 MiB). Go 1.27, Node 22 + pnpm, Docker (user in the docker group: `make db`, no
+  sudo), Playwright browsers in `~/.cache/ms-playwright`. The host is mid-upgrade: no `pacman
   -S`; the local `shellcheck` is broken, so the Makefile falls back to the `koalaman/shellcheck` Docker image.
 - `sudo` needs a password: never run privileged commands; hand them to the user.
 - The live lab's API (on this host): in `../opsforge`, `./opsforge api serve` (127.0.0.1:8091, token
@@ -75,7 +77,9 @@ and parity).
   (an attempt Academy lost) expire at OpsForge (a day idle). The documents are Go types in the pure package
   `internal/lab`, so module ports and the adapter share them; lab jobs use `LabTimeout` (20 min), other calls
   `OpsForgeTimeout`. Golden: `sandbox`, `probe.{passed,failed}`, `job`, `state.*`, `validate-steps`.
-- Academy config (split step 5): `--data` (default `$XDG_DATA_HOME/opsforge-academy`: `academy.db`, `opsforge-token`,
+- Academy config (split step 5): `--database` (`ACADEMY_DATABASE_URL`, default `make db`'s container
+  `postgres://academy:academy@127.0.0.1:5433/academy`; created if missing), `--data` (default
+  `$XDG_DATA_HOME/opsforge-academy`: `opsforge-token`,
   a copy of OpsForge's `.opsforge/api-token` read at every call, so a missing one is a readyz problem, not a start
   failure), `--content` (packs, default `./labs`), `--opsforge-url` (default `http://127.0.0.1:8091`; plain http only to
   loopback: the token), `--opsforge-ca-file` (PEM to trust for a self-signed https OpsForge, used by calls and
@@ -94,9 +98,19 @@ and parity).
   `X-CSRF-Token` (403 `/problems/bad-csrf`); a change or WebSocket upgrade whose Origin/Sec-Fetch-Site is another
   site gets 403 `/problems/cross-origin`. Handlers read the user with `principal(ctx)`. Guard-made statuses are
   documented per operation with `components/responses` (`NoSession`, `Forbidden`) so the contract tests cover them.
-  Tests sign in with `signIn(t, srv)` and send as the page (`browser.send`). Timestamps are stored with
-  `sqlite.FormatTime` (fixed-width UTC: text order = time order). A module's queries get their own sqlc entry
-  (`sqlc.yaml`, `<<: *go` + `out`).
+  Tests sign in with `signIn(t, srv)` and send as the page (`browser.send`). A module's queries get their own sqlc
+  entry (`sqlc.yaml`, `<<: *go` + `out`).
+- Academy database (split step 8): PostgreSQL (`internal/platform/postgres`: `Open` creates a missing database, applies
+  the embedded goose migrations, scans `timestamptz` in UTC; `IsUniqueViolation` = 23505), one module adapter each in
+  `internal/<module>/postgres` (sqlc `postgresql` engine, `$n` placeholders, database/sql over pgx/v5). One baseline
+  migration (`00001_baseline.sql`); later changes are new migrations. Times keep microseconds (tests use whole
+  microseconds); documents are `jsonb`, so compare them with `catalog.SameJSON`, never as bytes (contentimport's
+  "same packs = no write" depends on it). Tests: `pgtest.URL(t)` (a migrated database of its own, cloned from a
+  template made once per set of migrations under an advisory lock, dropped after), `pgtest.Empty`/`Missing`; the
+  server is `make db`'s or `ACADEMY_TEST_DATABASE_URL`. Never let a test fall back to the default `--database` (the
+  dev database): `cmd/academy`'s `testConfig` passes `pgtest.URL`. `make e2e` uses `academy_e2e`, dropped first by
+  `cmd/dbreset` (test names only). Phase 10's `labs.db` stays SQLite: `internal/legacy/labsdb` reads it,
+  `internal/legacy/postgres` writes.
 - Academy content (`internal/catalog`, `internal/contentimport`): one `content` table, PK (kind, key), the entry's
   bundle document in `doc`. `contentimport.Entries` flattens a bundle, `Diff` compares (`Entry.Same`: document,
   position, parents), only changes are written (same packs = no write at all, timestamps kept); missing entries are
@@ -188,6 +202,7 @@ and parity).
 ## Verify
 
 ```bash
+make db                # PostgreSQL in Docker (academy-pg, 127.0.0.1:5433); check and e2e start it too
 make check             # lint, contract pin, Go tests, pack compile, web checks, gen-check (real API: ACADEMY_OPSFORGE_*)
 make e2e               # Playwright against the built binary and the fake OpsForge API
 make academy && ./academy/bin/academy serve --content labs   # http://127.0.0.1:8090/ with OpsForge's API running

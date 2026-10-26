@@ -171,8 +171,10 @@ Assets are referenced, not inlined: `academy` serves them from the pack folder a
 
 ## Database (Go service, goose migrations, sqlc)
 
-Each module owns its tables (architecture.md). Types: ids are text (`<course>/<item>` for items), JSON columns are
-text decoded in Go, times are RFC 3339 UTC text.
+Each module owns its tables (architecture.md); PostgreSQL, one baseline migration (`academy/migrations/
+00001_baseline.sql`, split step 8). Types: entries are keyed by text (`<course>/<item>` for items), rows by identity
+ids; documents are `jsonb`, times `timestamptz`, flags `boolean`. The attempts' `sandbox` is the OpsForge sandbox
+(Go: `Attempt.Workspace`, the API's `workspace`).
 
 ```
 identity     users(id, name, created_at)  sessions(id, user_id, csrf, created_at, expires_at)

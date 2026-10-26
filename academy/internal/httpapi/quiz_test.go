@@ -93,7 +93,7 @@ func TestQuizRefusals(t *testing.T) {
 		}
 	}
 	// Another learner's session cannot read or submit it (one local user today: a second user is made by hand)
-	if _, err := w.store.DB.Exec(`INSERT INTO users (name, created_at) VALUES ('other', 'x')`); err != nil {
+	if _, err := w.store.DB.Exec(`INSERT INTO users (name, created_at) VALUES ('other', now())`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := w.store.DB.Exec(`UPDATE quiz_attempts SET user_id = 2`); err != nil {

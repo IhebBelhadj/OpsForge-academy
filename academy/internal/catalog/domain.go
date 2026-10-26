@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"sort"
 )
 
@@ -45,7 +46,20 @@ type Entry struct {
 // Same reports whether e and o hold the same content at the same place (retirement aside).
 func (e Entry) Same(o Entry) bool {
 	return e.Kind == o.Kind && e.Key == o.Key && e.PackID == o.PackID && e.CourseID == o.CourseID &&
-		e.Position == o.Position && e.Title == o.Title && e.Hash == o.Hash && string(e.Doc) == string(o.Doc)
+		e.Position == o.Position && e.Title == o.Title && e.Hash == o.Hash && SameJSON(e.Doc, o.Doc)
+}
+
+// SameJSON reports whether a and b are the same JSON value: the database keeps documents as jsonb, which does not
+// keep their spacing or key order.
+func SameJSON(a, b json.RawMessage) bool {
+	if string(a) == string(b) {
+		return true
+	}
+	var x, y any
+	if json.Unmarshal(a, &x) != nil || json.Unmarshal(b, &y) != nil {
+		return false
+	}
+	return reflect.DeepEqual(x, y)
 }
 
 // ErrNotFound is an entry that is not in the catalogue, or is retired.
