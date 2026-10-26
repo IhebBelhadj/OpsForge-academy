@@ -1,0 +1,47 @@
+title: Networks check
+minutes: 6
+questions:
+  - id: private-range
+    prompt: Which of these addresses is private?
+    choices: [8.8.8.8, 10.20.0.11, 1.1.1.1, 203.0.113.7]
+    answer: 1
+    explain: >
+      10.0.0.0/8 is one of the three private ranges of RFC 1918, with 172.16.0.0/12 and 192.168.0.0/16. Internet
+      routers drop packets addressed to it.
+    see: addresses-nat-and-vpns
+  - id: snat
+    prompt: >
+      A machine at 10.20.0.11 behind its site's gateway calls a server on the internet. Which source address does
+      the server see?
+    choices: [10.20.0.11, The gateway's public address, The server's own address]
+    answer: 1
+    explain: The gateway rewrites the source to its public address on the way out (source NAT) and maps the answer back.
+    see: addresses-nat-and-vpns
+  - id: vpn
+    prompt: Two sites are joined by a site-to-site VPN. What does the internet between them see?
+    choices:
+      - The private addresses of both machines, in clear
+      - Encrypted packets between the two gateways' public addresses
+      - Nothing at all, the tunnel does not use the internet
+    answer: 1
+    explain: >
+      The gateway encrypts the whole original packet and sends it to the other gateway's public address. The
+      private addresses are only visible inside the tunnel.
+    see: addresses-nat-and-vpns
+  - id: static-route
+    prompt: A static route points at a tunnel, and the tunnel dies. What happens to traffic for that route?
+    choices:
+      - It switches to another path automatically
+      - It keeps going into the dead tunnel until someone changes the route
+      - The router deletes the route after ten seconds
+    answer: 1
+    explain: Nothing updates a static route. A routing protocol such as OSPF notices dead neighbours and recomputes.
+    see: dynamic-routing
+  - id: ospf-cost
+    prompt: >
+      Link costs are a-b 40, b-c 90 and a-c 120. The a-c link fails. Which path does OSPF pick from a to c, and
+      at what cost?
+    choices: ["a → c, cost 120", "a → b → c, cost 130", "a → b → c, cost 90", "None: c is unreachable"]
+    answer: 1
+    explain: The direct link is gone, so the only path left goes through b, at 40 + 90 = 130.
+    see: dynamic-routing

@@ -33,8 +33,8 @@ labs/<pack>/
   badges.yml
 ```
 
-Phase 10's `curricula/` folder is converted by hand in M2 (the two curricula become course files) and then dropped
-from the schema.
+Phase 10's `curricula/` folder became two courses in M2 (`core`'s *Cloud networking basics* and *Kubernetes
+Fundamentals*) and left the format: the compiler refuses a pack that still has one.
 
 ## course.yml
 
@@ -214,8 +214,7 @@ operations   operations(id, user_id, kind, subject, status, result, error, creat
 
 - **Import** (`contentimport`): the bundle is flattened into entries and compared with the catalogue (`Diff`):
   only added, changed (document, position, parent) or returning entries are written, missing ones retired, in one
-  transaction. One table instead of one per kind keeps that comparison generic; a pack's Phase 10 curricula stay in
-  its document until M2 turns them into courses.
+  transaction. One table instead of one per kind keeps that comparison generic.
 - **Completion**: lectures by `item_progress`; quizzes by a passed `quiz_attempts` row; labs by a passed `attempts`
   row for that lab (a lab passed in one course completes it in every course); challenges by an `accepted`
   submission. Stale when the completion's `content_hash` differs from the item's current one.
@@ -226,8 +225,9 @@ operations   operations(id, user_id, kind, subject, status, result, error, creat
 
 - XP: labs and challenges give `xp` less hints (at least half), quizzes `xp` on first pass, lectures nothing; best
   result per item counts.
-- Badge rule types (registry `rewards.Rules`, each a small strategy type with its own tests): `labs_passed`,
-  `lab_passed`, `curriculum_complete`, `xp` (Phase 10, M1). A course's `badge` is awarded when the course is completed,
+- Badge rule types (registry `rewards.Rules`, each a small strategy type with its own tests): `labs_passed` (`min`,
+  optional `course`: only its labs, `max_hints`, `max_seconds`), `lab_passed`, `course_complete` (`course`), `xp`
+  (Phase 10's, with M2's courses in place of curricula). A course's `badge` is awarded when the course is completed,
   whatever the badge's rule. Later: `quiz_score` (quiz, min %), `quizzes_perfect` (min count), `challenges_accepted`
   (min, difficulty), `streak_days` (min); each also needs its entry in `compiler.ruleTypes` (the compiler validates).
 - Every badge is evaluated against the whole history after each import and after each event that may earn one

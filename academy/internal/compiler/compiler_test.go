@@ -440,18 +440,36 @@ func TestBadgeRules(t *testing.T) {
 		rule map[string]any
 		want string
 	}{
-		{map[string]any{"type": "streak"}, "badges/intro-done: unknown rule type 'streak' (one of labs_passed, lab_passed, curriculum_complete, xp)"},
+		{map[string]any{"type": "streak"}, "badges/intro-done: unknown rule type 'streak' (one of labs_passed, lab_passed, course_complete, xp)"},
 		{map[string]any{"type": "xp"}, "badges/intro-done: needs min"},
 		{map[string]any{"type": "xp", "min": -5}, "badges/intro-done: min must be a non-negative integer"},
 		{map[string]any{"type": "xp", "min": 5, "lab": "x"}, "badges/intro-done: xp has no 'lab'"},
 		{map[string]any{"type": "lab_passed", "lab": "nope"}, "badges/intro-done: unknown lab 'nope'"},
-		{map[string]any{"type": "curriculum_complete", "curriculum": "nope"}, "badges/intro-done: unknown curriculum 'nope'"},
+		{map[string]any{"type": "course_complete", "course": "nope"}, "badges/intro-done: unknown course 'nope'"},
+		{map[string]any{"type": "labs_passed", "min": 1, "course": "nope"}, "badges/intro-done: unknown course 'nope'"},
 	} {
 		dir := pack(t)
 		write(t, dir+"/badges.yml", "- {id: intro-done, title: T, description: D, rule: "+flow(c.rule)+"}\n")
 		if b := compile(t, filepath.Dir(dir), dir); !slices.Contains(b.messages(), c.want) {
 			t.Errorf("%v: no %q in %q", c.rule, c.want, b.messages())
 		}
+	}
+}
+
+// A badge may name a course; Phase 10's curricula folder is refused (curricula are courses now).
+func TestCourseRulesAndNoCurricula(t *testing.T) {
+	dir := pack(t)
+	write(t, dir+"/badges.yml", "- {id: intro-done, title: T, description: D, rule: {type: course_complete, course: k8s-intro}}\n")
+	if b := compile(t, filepath.Dir(dir), dir); len(b.Errors) != 0 {
+		t.Fatalf("errors %q", b.messages())
+	}
+	if err := os.Mkdir(dir+"/curricula", 0o750); err != nil {
+		t.Fatal(err)
+	}
+	write(t, dir+"/curricula/cloud.yml", "title: Cloud\nlevels: [{title: L, labs: [meet-the-cluster]}]\n")
+	want := "curricula: Phase 10 curricula are courses now (courses/<id>/course.yml)"
+	if b := compile(t, filepath.Dir(dir), dir); !slices.Contains(b.messages(), want) {
+		t.Fatalf("no %q in %q", want, b.messages())
 	}
 }
 

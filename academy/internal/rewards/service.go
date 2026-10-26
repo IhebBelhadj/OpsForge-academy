@@ -35,46 +35,39 @@ func NewService(repo Repo, cat Catalog, sources Sources, events Publisher, clock
 }
 
 // badges are every badge as imported (retired ones too), in pack order, with the live courses that award each, and
-// the live packs' curricula.
+// the labs of each live course.
 func (s *Service) badges(ctx context.Context) ([]Badge, map[string][]string, error) {
-	courses := map[string][]string{} // badge → courses
+	courses := map[string][]string{}    // badge → courses
+	courseLabs := map[string][]string{} // course → labs
 	entries, err := s.catalog.Entries(ctx, catalog.KindCourse)
 	if err != nil {
 		return nil, nil, err
 	}
 	for _, e := range entries {
-		var c struct{ Badge *string }
+		var c struct {
+			Badge    *string
+			Sections []struct {
+				Items []struct{ Type, Ref string }
+			}
+		}
 		if err := json.Unmarshal(e.Doc, &c); err != nil {
 			return nil, nil, fmt.Errorf("course %s: %w", e.Key, err)
 		}
-		if !e.Retired && c.Badge != nil {
+		if e.Retired {
+			continue
+		}
+		if c.Badge != nil {
 			courses[*c.Badge] = append(courses[*c.Badge], e.Key)
 		}
-	}
-	curricula := map[string][]string{}
-	if entries, err = s.catalog.Entries(ctx, catalog.KindPack); err != nil {
-		return nil, nil, err
-	}
-	for _, e := range entries {
-		var p struct {
-			Curricula []struct {
-				ID     string
-				Levels []struct{ Labs []string }
+		labs := []string{}
+		for _, sec := range c.Sections {
+			for _, it := range sec.Items {
+				if it.Type == "lab" {
+					labs = append(labs, it.Ref)
+				}
 			}
 		}
-		if err := json.Unmarshal(e.Doc, &p); err != nil {
-			return nil, nil, fmt.Errorf("pack %s: %w", e.Key, err)
-		}
-		for _, c := range p.Curricula {
-			if e.Retired {
-				continue
-			}
-			labs := []string{}
-			for _, l := range c.Levels {
-				labs = append(labs, l.Labs...)
-			}
-			curricula[c.ID] = labs
-		}
+		courseLabs[e.Key] = labs
 	}
 	if entries, err = s.catalog.Entries(ctx, catalog.KindBadge); err != nil {
 		return nil, nil, err
@@ -92,12 +85,12 @@ func (s *Service) badges(ctx context.Context) ([]Badge, map[string][]string, err
 		out = append(out, Badge{ID: e.Key, Pack: e.PackID, Title: e.Title, Description: d.Description, Icon: d.Icon,
 			Position: e.Position, Rule: d.Rule, Courses: courses[e.Key], Retired: e.Retired})
 	}
-	return out, curricula, nil
+	return out, courseLabs, nil
 }
 
 // history is user's history for the rules.
-func (s *Service) history(ctx context.Context, user int64, curricula map[string][]string) (History, error) {
-	h := History{Curricula: curricula, Courses: map[string]bool{}}
+func (s *Service) history(ctx context.Context, user int64, courseLabs map[string][]string) (History, error) {
+	h := History{CourseLabs: courseLabs, Courses: map[string]bool{}}
 	var err error
 	if h.Labs, err = s.sources.Labs(ctx, user); err != nil {
 		return History{}, fmt.Errorf("lab passes: %w", err)
@@ -117,11 +110,11 @@ func (s *Service) history(ctx context.Context, user int64, curricula map[string]
 
 // Summary is user's XP and badges (live ones, and retired ones already awarded).
 func (s *Service) Summary(ctx context.Context, user int64) (Summary, error) {
-	badges, curricula, err := s.badges(ctx)
+	badges, courseLabs, err := s.badges(ctx)
 	if err != nil {
 		return Summary{}, err
 	}
-	h, err := s.history(ctx, user, curricula)
+	h, err := s.history(ctx, user, courseLabs)
 	if err != nil {
 		return Summary{}, err
 	}
@@ -146,15 +139,15 @@ func (s *Service) Summary(ctx context.Context, user int64) (Summary, error) {
 func (s *Service) Evaluate(ctx context.Context, user int64) ([]Award, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	badges, curricula, err := s.badges(ctx)
+	badges, courseLabs, err := s.badges(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return s.evaluate(ctx, user, badges, curricula)
+	return s.evaluate(ctx, user, badges, courseLabs)
 }
 
-func (s *Service) evaluate(ctx context.Context, user int64, badges []Badge, curricula map[string][]string) ([]Award, error) {
-	h, err := s.history(ctx, user, curricula)
+func (s *Service) evaluate(ctx context.Context, user int64, badges []Badge, courseLabs map[string][]string) ([]Award, error) {
+	h, err := s.history(ctx, user, courseLabs)
 	if err != nil {
 		return nil, err
 	}
@@ -201,13 +194,13 @@ func (s *Service) EvaluateAll(ctx context.Context) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	badges, curricula, err := s.badges(ctx)
+	badges, courseLabs, err := s.badges(ctx)
 	if err != nil {
 		return 0, err
 	}
 	n := 0
 	for _, u := range users {
-		awarded, err := s.evaluate(ctx, u, badges, curricula)
+		awarded, err := s.evaluate(ctx, u, badges, courseLabs)
 		n += len(awarded)
 		if err != nil {
 			return n, err

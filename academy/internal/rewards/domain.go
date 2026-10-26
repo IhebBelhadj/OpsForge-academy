@@ -28,13 +28,12 @@ type QuizPass struct {
 	XP           int
 }
 
-// History is what the rules read: the learner's passes, the courses completed, and the pack's Phase 10 curricula
-// (curriculum id → its labs) until M2 turns them into courses.
+// History is what the rules read: the learner's passes, the courses completed, and the labs of each live course.
 type History struct {
-	Labs      []LabPass
-	Quizzes   []QuizPass
-	Courses   map[string]bool
-	Curricula map[string][]string
+	Labs       []LabPass
+	Quizzes    []QuizPass
+	Courses    map[string]bool
+	CourseLabs map[string][]string
 }
 
 // XP is the best XP of each lab plus the best XP of each quiz.
@@ -72,10 +71,10 @@ type Rule interface {
 // Rules are the rule types by name (internal/compiler ruleTypes validates them at compile): each decodes its own
 // parameters. A new type is a new entry here and in compiler.ruleTypes.
 var Rules = map[string]func(json.RawMessage) (Rule, error){
-	"labs_passed":         decode[labsPassed],
-	"lab_passed":          decode[labPassed],
-	"curriculum_complete": decode[curriculumComplete],
-	"xp":                  decode[xpRule],
+	"labs_passed":     decode[labsPassed],
+	"lab_passed":      decode[labPassed],
+	"course_complete": decode[courseComplete],
+	"xp":              decode[xpRule],
 }
 
 func decode[R Rule](raw json.RawMessage) (Rule, error) {
@@ -127,18 +126,18 @@ func (l limits) counts(p LabPass) bool {
 	return (l.MaxHints == nil || p.Hints <= *l.MaxHints) && (l.MaxSeconds == nil || p.Seconds <= *l.MaxSeconds)
 }
 
-// labsPassed: at least Min distinct labs passed within the limits, of one curriculum when it is set.
+// labsPassed: at least Min distinct labs passed within the limits, of one course when it is set.
 type labsPassed struct {
 	limits
-	Min        int
-	Curriculum *string
+	Min    int
+	Course *string
 }
 
 func (r labsPassed) Earned(h History) bool {
 	var in map[string]bool
-	if r.Curriculum != nil {
+	if r.Course != nil {
 		in = map[string]bool{}
-		for _, l := range h.Curricula[*r.Curriculum] {
+		for _, l := range h.CourseLabs[*r.Course] {
 			in[l] = true
 		}
 	}
@@ -166,27 +165,12 @@ func (r labPassed) Earned(h History) bool {
 	return false
 }
 
-// curriculumComplete: every lab of a (non-empty) curriculum passed.
-type curriculumComplete struct {
-	Curriculum string
+// courseComplete: a course completed (every item, as progress counts it).
+type courseComplete struct {
+	Course string
 }
 
-func (r curriculumComplete) Earned(h History) bool {
-	labs := h.Curricula[r.Curriculum]
-	if len(labs) == 0 {
-		return false
-	}
-	passed := map[string]bool{}
-	for _, p := range h.Labs {
-		passed[p.Lab] = true
-	}
-	for _, l := range labs {
-		if !passed[l] {
-			return false
-		}
-	}
-	return true
-}
+func (r courseComplete) Earned(h History) bool { return h.Courses[r.Course] }
 
 // xpRule: at least Min XP.
 type xpRule struct {

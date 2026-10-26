@@ -18,10 +18,10 @@ func history() rewards.History {
 		Quizzes: []rewards.QuizPass{{Course: "k8s-intro", Item: "pods-check", XP: 50},
 			{Course: "k8s-intro", Item: "pods-check", XP: 0}},
 		Courses: map[string]bool{"k8s-intro": true},
-		Curricula: map[string][]string{
-			"cloud":      {"regions-and-latency", "private-networks"},
-			"kubernetes": {"nodes-and-regions", "losing-a-site"},
-			"empty":      {},
+		CourseLabs: map[string][]string{
+			"cloud-networking-basics": {"regions-and-latency", "private-networks"},
+			"kubernetes-fundamentals": {"nodes-and-regions", "losing-a-site"},
+			"k8s-intro":               {},
 		},
 	}
 }
@@ -37,23 +37,23 @@ func TestXPIsTheBestOfEachItem(t *testing.T) {
 
 func TestRules(t *testing.T) {
 	for rule, want := range map[string]bool{
-		`{"type":"labs_passed","min":2}`:                                   true,
-		`{"type":"labs_passed","min":3}`:                                   false,
-		`{"type":"labs_passed","min":2,"max_hints":0}`:                     true, // the second pass of private-networks
-		`{"type":"labs_passed","min":2,"max_seconds":400}`:                 false,
-		`{"type":"labs_passed","min":2,"curriculum":"cloud"}`:              true,
-		`{"type":"labs_passed","min":1,"curriculum":"kubernetes"}`:         false,
-		`{"type":"labs_passed","min":0}`:                                   true,
-		`{"type":"lab_passed","lab":"private-networks"}`:                   true,
-		`{"type":"lab_passed","lab":"private-networks","max_seconds":500}`: false,
-		`{"type":"lab_passed","lab":"private-networks","max_hints":0}`:     true,
-		`{"type":"lab_passed","lab":"losing-a-site"}`:                      false,
-		`{"type":"curriculum_complete","curriculum":"cloud"}`:              true,
-		`{"type":"curriculum_complete","curriculum":"kubernetes"}`:         false,
-		`{"type":"curriculum_complete","curriculum":"empty"}`:              false,
-		`{"type":"curriculum_complete","curriculum":"retired"}`:            false,
-		`{"type":"xp","min":250}`:                                          true,
-		`{"type":"xp","min":251}`:                                          false,
+		`{"type":"labs_passed","min":2}`:                                    true,
+		`{"type":"labs_passed","min":3}`:                                    false,
+		`{"type":"labs_passed","min":2,"max_hints":0}`:                      true, // the second pass of private-networks
+		`{"type":"labs_passed","min":2,"max_seconds":400}`:                  false,
+		`{"type":"labs_passed","min":2,"course":"cloud-networking-basics"}`: true,
+		`{"type":"labs_passed","min":1,"course":"kubernetes-fundamentals"}`: false,
+		`{"type":"labs_passed","min":1,"course":"retired"}`:                 false,
+		`{"type":"labs_passed","min":0}`:                                    true,
+		`{"type":"lab_passed","lab":"private-networks"}`:                    true,
+		`{"type":"lab_passed","lab":"private-networks","max_seconds":500}`:  false,
+		`{"type":"lab_passed","lab":"private-networks","max_hints":0}`:      true,
+		`{"type":"lab_passed","lab":"losing-a-site"}`:                       false,
+		`{"type":"course_complete","course":"k8s-intro"}`:                   true,
+		`{"type":"course_complete","course":"cloud-networking-basics"}`:     false, // its labs passed, not the course
+		`{"type":"course_complete","course":"retired"}`:                     false,
+		`{"type":"xp","min":250}`:                                           true,
+		`{"type":"xp","min":251}`:                                           false,
 	} {
 		got, err := rewards.Earned(rewards.Badge{ID: "b", Rule: json.RawMessage(rule)}, history())
 		if err != nil || got != want {

@@ -1,0 +1,50 @@
+title: Deployments check
+minutes: 6
+questions:
+  - id: bare-pod
+    prompt: A bare pod (created without a controller) is on a node that dies. What happens to it?
+    choices:
+      - The scheduler moves it to another node
+      - Nothing replaces it
+      - Its Deployment creates a new one
+    answer: 1
+    explain: Only controllers replace pods. A bare pod has none, which is why workloads run in Deployments.
+    see: deployments-and-replicasets
+  - id: rollout
+    prompt: You change a Deployment's image. What does it create?
+    choices:
+      - New pods in the same ReplicaSet
+      - A new ReplicaSet, scaled up as the old one is scaled down
+      - A new Deployment
+    answer: 1
+    explain: The new pod template gets its own ReplicaSet; the old one is kept at zero replicas so you can roll back.
+    see: deployments-and-replicasets
+  - id: skew
+    prompt: >
+      A spread constraint on the region label has maxSkew 1. How can four pods be split over three regions?
+    choices: ["2, 1, 1", "2, 2, 0", "4, 0, 0", "3, 1, 0"]
+    answer: 0
+    explain: The fullest and the emptiest region may differ by at most one pod, so 2/1/1 is the only split.
+    see: deployments-and-replicasets
+  - id: moved
+    prompt: You add a spread constraint to pods that are already running, unevenly. When are they spread out?
+    choices:
+      - At once, the scheduler moves them
+      - When they are replaced, for example by the rollout the change starts
+      - Never, constraints only apply to new Deployments
+    answer: 1
+    explain: >
+      The scheduler applies constraints when it places pods. Changing the pod template rolls the pods out again,
+      and the new ones are placed by the rule.
+    see: deployments-and-replicasets
+  - id: notready
+    prompt: A node stops reporting. Why do its pods keep their place for a while before being replaced?
+    choices:
+      - The scheduler only runs every few minutes
+      - Their toleration of the unreachable taint lasts a while, in case the node comes back
+      - Pods can never be replaced while their node exists
+    answer: 1
+    explain: >
+      The cluster cannot tell a dead node from an unreachable one; replacing pods at once risks running two copies.
+      The toleration's time limit decides how long it waits.
+    see: node-heartbeats-and-eviction

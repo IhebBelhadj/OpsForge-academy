@@ -31,7 +31,7 @@
     "pack": {
       "type": "object",
       "required": ["id", "title", "version", "author", "description", "hint_penalty", "path", "content_hash",
-        "courses", "lectures", "quizzes", "challenges", "labs", "curricula", "badges", "assets"],
+        "courses", "lectures", "quizzes", "challenges", "labs", "badges", "assets"],
       "additionalProperties": false,
       "properties": {
         "id": { "$ref": "#/$defs/id" },
@@ -47,7 +47,6 @@
         "quizzes": { "type": "array", "items": { "$ref": "#/$defs/quiz" } },
         "challenges": { "type": "array", "items": { "$ref": "#/$defs/challenge" } },
         "labs": { "type": "array", "items": { "$ref": "#/$defs/lab" } },
-        "curricula": { "type": "array", "description": "Phase 10 curricula, until they become courses (M2)", "items": { "$ref": "#/$defs/curriculum" } },
         "badges": { "type": "array", "items": { "$ref": "#/$defs/badge" } },
         "assets": {
           "type": "array",
@@ -229,18 +228,6 @@
         "body": { "type": "object", "required": ["title", "summary", "briefing", "steps"], "description": "The lab file as written (lab/labpack.schema.json)" },
         "files": { "$ref": "#/$defs/files" },
         "content_hash": { "$ref": "#/$defs/hash" }
-      }
-    },
-    "curriculum": {
-      "type": "object",
-      "required": ["id", "title", "summary", "position", "levels"],
-      "additionalProperties": false,
-      "properties": {
-        "id": { "$ref": "#/$defs/id" },
-        "title": { "type": "string" },
-        "summary": { "type": "string" },
-        "position": { "type": "integer" },
-        "levels": { "type": "array", "items": { "type": "object" } }
       }
     },
     "badge": {

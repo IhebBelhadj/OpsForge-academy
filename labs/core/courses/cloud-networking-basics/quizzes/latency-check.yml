@@ -1,0 +1,44 @@
+title: Latency check
+minutes: 5
+questions:
+  - id: rtt
+    prompt: What does a round-trip time (RTT) of 120 ms between two regions mean?
+    choices:
+      - A packet takes 120 ms to get there, and as long again to come back
+      - A packet and its answer together take 120 ms, there and back
+      - The link carries 120 megabits per second
+    answer: 1
+    explain: The round trip is there and back, so one way takes about half of it, 60 ms here.
+    see: regions-and-distance
+  - id: bandwidth
+    prompt: The link between two regions is slow to answer. Which change shortens each round trip?
+    choices:
+      - A link with ten times the bandwidth
+      - Moving the two machines closer together
+      - Compressing the data
+    answer: 1
+    explain: >
+      Round-trip time is set by distance and the hops on the way. More bandwidth lets you send more at once, and
+      compression sends fewer bytes, but neither makes a single trip faster.
+    see: regions-and-distance
+  - id: https
+    prompt: >
+      A new HTTPS connection (TCP, then TLS 1.3, then the request) goes to a region 90 ms away. About how long
+      until the first byte of the answer arrives?
+    choices: [About 90 ms, About 180 ms, About 270 ms, About 900 ms]
+    answer: 2
+    explain: Three round trips of 90 ms each, before the server has even started on the images and scripts.
+    see: regions-and-distance
+  - id: why-regions
+    type: multiple
+    prompt: Which are good reasons to run a service in more than one region?
+    choices:
+      - Users far from the first region get faster answers
+      - It keeps running when one region has an outage
+      - Requests between its regions become faster
+      - Some data must stay in the country it came from
+    answer: [0, 1, 3]
+    explain: >
+      Regions bring the service closer to users, separate failures and keep data where the law wants it. Traffic
+      between regions is the slow part, which is why multi-region designs try to avoid it.
+    see: regions-and-distance

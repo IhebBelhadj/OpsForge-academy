@@ -154,18 +154,18 @@ func stepList(v any) ([]any, bool) {
 // Badge rule types (rewards.Rules decodes them; keep both): the keys each takes and its checks.
 type ruleType struct {
 	keys  []string
-	valid func(rule map[string]any, labs, curricula map[string]bool) []string
+	valid func(rule map[string]any, labs, courses map[string]bool) []string
 }
 
 var ruleTypes = map[string]ruleType{
-	"labs_passed": {[]string{"min", "curriculum", "max_hints", "max_seconds"}, func(r map[string]any, _, curricula map[string]bool) []string {
-		return slices.Concat(needs(r, "min"), ints(r, "min", "max_hints", "max_seconds"), known(r, "curriculum", curricula))
+	"labs_passed": {[]string{"min", "course", "max_hints", "max_seconds"}, func(r map[string]any, _, courses map[string]bool) []string {
+		return slices.Concat(needs(r, "min"), ints(r, "min", "max_hints", "max_seconds"), known(r, "course", courses))
 	}},
 	"lab_passed": {[]string{"lab", "max_hints", "max_seconds"}, func(r map[string]any, labs, _ map[string]bool) []string {
 		return slices.Concat(needs(r, "lab"), ints(r, "max_hints", "max_seconds"), known(r, "lab", labs))
 	}},
-	"curriculum_complete": {[]string{"curriculum"}, func(r map[string]any, _, curricula map[string]bool) []string {
-		return slices.Concat(needs(r, "curriculum"), known(r, "curriculum", curricula))
+	"course_complete": {[]string{"course"}, func(r map[string]any, _, courses map[string]bool) []string {
+		return slices.Concat(needs(r, "course"), known(r, "course", courses))
 	}},
 	"xp": {[]string{"min"}, func(r map[string]any, _, _ map[string]bool) []string {
 		return slices.Concat(needs(r, "min"), ints(r, "min"))
@@ -173,7 +173,7 @@ var ruleTypes = map[string]ruleType{
 }
 
 // ruleNames in the order messages list them.
-var ruleNames = []string{"labs_passed", "lab_passed", "curriculum_complete", "xp"}
+var ruleNames = []string{"labs_passed", "lab_passed", "course_complete", "xp"}
 
 func needs(rule map[string]any, keys ...string) []string {
 	var out []string
@@ -208,25 +208,15 @@ func known(rule map[string]any, key string, ids map[string]bool) []string {
 	return []string{fmt.Sprintf("unknown %s %s", key, pyRepr(v))}
 }
 
-// packErrors checks Phase 10's part of a pack (labs, curricula, badges): the schema, then cross-references within the
-// pack and to the labs and curricula of the other packs compiled with it.
-func packErrors(pk *loaded, otherLabs, otherCurricula map[string]bool, p *problems) {
+// packErrors checks Phase 10's part of a pack (labs, badges): the schema, then cross-references within the pack, to
+// the labs of the other packs compiled with it and to every pack's courses.
+func packErrors(pk *loaded, otherLabs, courses map[string]bool, p *problems) {
 	if errs := schemaErrors(labpackSchema(), pk.doc); len(errs) > 0 {
 		p.addAll("", errs)
 		return
 	}
 	doc := pk.doc
-	labs, curricula := union(keySet(doc["labs"]), otherLabs), union(keySet(doc["curricula"]), otherCurricula)
-	for _, cid := range pk.curriculumIDs {
-		levels := doc["curricula"].(map[string]any)[cid].(map[string]any)["levels"].([]any)
-		for i, level := range levels {
-			for _, l := range level.(map[string]any)["labs"].([]any) {
-				if !labs[l.(string)] {
-					p.add("curricula/%s: level %d: unknown lab %s", cid, i+1, pyRepr(l))
-				}
-			}
-		}
-	}
+	labs := union(keySet(doc["labs"]), otherLabs)
 	for _, lid := range pk.labIDs {
 		lb := doc["labs"].(map[string]any)[lid].(map[string]any)
 		where := "labs/" + lid
@@ -282,7 +272,7 @@ func packErrors(pk *loaded, otherLabs, otherCurricula map[string]bool, p *proble
 				p.add("%s: %s has no %s", where, name, pyRepr(k))
 			}
 		}
-		p.addAll(where+": ", rt.valid(rule, labs, curricula))
+		p.addAll(where+": ", rt.valid(rule, labs, courses))
 	}
 }
 

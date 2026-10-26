@@ -1,0 +1,41 @@
+title: Kubernetes Fundamentals
+subtitle: Run, expose and debug workloads on a cluster spread over three regions.
+level: beginner
+position: 2
+layout: stretched
+needs: [k3s]
+outcomes:
+  - Read the cluster's state with kubectl
+  - Say what each part of the control plane and of a node does
+  - Select objects by label, and use the topology labels that place pods by region
+  - Run a Deployment, spread it over regions and scale it
+  - Follow a cluster through the loss of a region
+requirements:
+  - Basic shell use (cd, ls, a text editor). No Kubernetes experience.
+description: |
+  One K3s cluster runs across the lab's three sites: its control plane in region **a**, a worker in **b** and one in
+  **c**. You learn Kubernetes on it the way it is used in a real cloud, where a cluster spans failure domains and
+  the scheduler has to know where every machine is.
+
+  This first version holds the course's opening lectures and the three cluster labs; the rest of the syllabus
+  (pods in depth, rollouts, Services and DNS, challenges in the editor) is added section by section.
+badge: kubernetes-regions
+sections:
+  - title: Kubernetes and your cluster
+    items:
+      - lecture: control-plane-and-nodes
+      - lecture: desired-state
+      - quiz: architecture-check
+  - title: Labels and the shape of the cluster
+    items:
+      - lecture: labels-and-selectors
+      - lab: nodes-and-regions
+  - title: Deployments
+    items:
+      - lecture: deployments-and-replicasets
+      - lab: scale-across-regions
+      - quiz: deployments-check
+  - title: When a region fails
+    items:
+      - lecture: node-heartbeats-and-eviction
+      - lab: losing-a-site

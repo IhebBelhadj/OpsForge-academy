@@ -1,5 +1,5 @@
 // Package compiler compiles content packs (docs/courses/content-model.md) into the bundle that contentimport
-// imports (api/bundle.schema.json): Phase 10's labs, curricula and badges plus courses of lectures, quizzes, labs and
+// imports (api/bundle.schema.json): Phase 10's labs and badges plus courses of lectures, quizzes, labs and
 // challenges. Packs are read through fs.FS; scenario steps are checked by the toolchain (StepChecker).
 package compiler
 
@@ -28,7 +28,7 @@ func Compile(ctx context.Context, sources []Source, steps StepChecker, compiledA
 		packs[i] = load(src)
 	}
 	owners := map[string]map[string]string{"course": {}, "lab": {}} // id -> the first pack that has it
-	allLabs, allCurricula, allBadges := map[string]any{}, map[string]bool{}, map[string]bool{}
+	allLabs, allBadges := map[string]any{}, map[string]bool{}
 	for _, pk := range packs {
 		for kind, ids := range map[string][]string{"course": courseIDs(pk), "lab": pk.labIDs} {
 			for _, id := range ids {
@@ -39,9 +39,6 @@ func Compile(ctx context.Context, sources []Source, steps StepChecker, compiledA
 		}
 		for _, lid := range pk.labIDs {
 			allLabs[lid] = pk.doc["labs"].(map[string]any)[lid]
-		}
-		for _, cid := range pk.curriculumIDs {
-			allCurricula[cid] = true
 		}
 		badges, _ := pk.doc["badges"].([]any)
 		for _, b := range badges {
@@ -78,20 +75,14 @@ func Compile(ctx context.Context, sources []Source, steps StepChecker, compiledA
 		if p.found() {
 			continue
 		}
-		otherLabs, otherCurricula := map[string]bool{}, map[string]bool{}
+		otherLabs := map[string]bool{}
 		for id := range allLabs {
 			otherLabs[id] = true
-		}
-		for id := range allCurricula {
-			otherCurricula[id] = true
 		}
 		for _, id := range pk.labIDs {
 			delete(otherLabs, id)
 		}
-		for _, id := range pk.curriculumIDs {
-			delete(otherCurricula, id)
-		}
-		packErrors(pk, otherLabs, otherCurricula, p)
+		packErrors(pk, otherLabs, courseOwners, p)
 		if p.found() {
 			continue
 		}
@@ -374,12 +365,6 @@ func packEntry(pk *loaded, labItems map[string]map[string]any) (map[string]any, 
 	for _, lid := range pk.labIDs {
 		labs = append(labs, labItems[lid])
 	}
-	curricula := []any{}
-	for i, cid := range pk.curriculumIDs {
-		cur := pk.doc["curricula"].(map[string]any)[cid].(map[string]any)
-		curricula = append(curricula, map[string]any{"id": cid, "title": cur["title"],
-			"summary": get(cur, "summary", ""), "position": get(cur, "position", i), "levels": cur["levels"]})
-	}
 	badges := []any{}
 	for i, b := range pk.doc["badges"].([]any) {
 		badge := b.(map[string]any)
@@ -403,7 +388,7 @@ func packEntry(pk *loaded, labItems map[string]map[string]any) (map[string]any, 
 	if err != nil {
 		return nil, err
 	}
-	entry["labs"], entry["curricula"], entry["badges"], entry["assets"] = labs, curricula, badges, assets
+	entry["labs"], entry["badges"], entry["assets"] = labs, badges, assets
 
 	meta := pk.doc["pack"].(map[string]any)
 	version, ok := meta["version"].(string)

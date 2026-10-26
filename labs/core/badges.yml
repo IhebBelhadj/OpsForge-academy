@@ -10,14 +10,14 @@
   rule: { type: labs_passed, min: 3, max_hints: 0 }
 - id: cloud-networking
   title: Line engineer
-  description: Completed every lab in Cloud networking.
+  description: Completed the course Cloud networking basics.
   icon: route
-  rule: { type: curriculum_complete, curriculum: cloud }
+  rule: { type: course_complete, course: cloud-networking-basics }
 - id: kubernetes-regions
   title: Region controller
-  description: Completed every lab in Kubernetes across regions.
+  description: Completed the course Kubernetes Fundamentals.
   icon: points
-  rule: { type: curriculum_complete, curriculum: kubernetes }
+  rule: { type: course_complete, course: kubernetes-fundamentals }
 - id: quick-recovery
   title: Back in service
   description: Passed Losing a site in under fifteen minutes.

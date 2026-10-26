@@ -1,0 +1,34 @@
+title: Cloud networking basics
+subtitle: Regions, private networks and the links between them, built from three sites and a simulated internet.
+level: beginner
+position: 1
+needs: [k3s, vpn]
+outcomes:
+  - Measure the round trip between two regions and count what it costs a request
+  - Tell private from public addresses, and say what NAT and a site-to-site VPN each do
+  - Explain how dynamic routing finds another path when a link fails
+requirements:
+  - Basic shell use (cd, ls, reading command output). No networking background needed.
+description: |
+  A cloud provider hides most of its network: you pick a **region**, get a **private network** in it, and connect
+  regions with a **VPN** or a peering link. In this course you take those pieces apart on a lab of three sites,
+  **a**, **b** and **c**, joined by a simulated internet that adds the delay and loss real distance does.
+
+  You will measure latency between regions and move one further away, follow a packet from one region's private
+  network into another's, and break a link to watch the routers find a detour.
+badge: cloud-networking
+sections:
+  - title: Regions and latency
+    items:
+      - lecture: regions-and-distance
+      - lab: regions-and-latency
+      - quiz: latency-check
+  - title: Private networks
+    items:
+      - lecture: addresses-nat-and-vpns
+      - lab: private-networks
+  - title: Connecting sites
+    items:
+      - lecture: dynamic-routing
+      - lab: routing-around-failure
+      - quiz: networks-check

@@ -1,0 +1,47 @@
+title: Architecture check
+minutes: 6
+questions:
+  - id: front-door
+    prompt: Which component do kubectl and every other component talk to?
+    choices: [The scheduler, The API server, The kubelet, The datastore]
+    answer: 1
+    explain: Everything reads and writes objects through the API server; only the API server talks to the datastore.
+    see: control-plane-and-nodes
+  - id: scheduler
+    prompt: The scheduler has chosen a node for a new pod. What starts the pod's containers?
+    choices:
+      - The scheduler, over SSH to the node
+      - The kubelet on that node, which sees the pod assigned to it
+      - The controller manager
+    answer: 1
+    explain: >
+      The scheduler only writes the node's name into the pod. The kubelet watches for pods assigned to its node
+      and has the container runtime start them.
+    see: control-plane-and-nodes
+  - id: spec-status
+    prompt: In an object, which part do you write, and which does the cluster write?
+    choices:
+      - You write status, the cluster writes spec
+      - You write spec, the cluster writes status
+      - Both are written by you
+    answer: 1
+    explain: spec is what you want, status is what is true now; controllers act to make the two agree.
+    see: desired-state
+  - id: deleted-pod
+    prompt: You delete one pod of a three-replica Deployment. What happens?
+    choices:
+      - The Deployment runs two pods from now on
+      - The ReplicaSet notices two pods where three are wanted and creates a new one
+      - The pod cannot be deleted while the Deployment exists
+    answer: 1
+    explain: The ReplicaSet's controller compares the pods it finds with its replicas and closes the gap.
+    see: desired-state
+  - id: lab-nodes
+    type: multiple
+    prompt: In this lab's cluster, which nodes run your pods?
+    choices: ["The server in region a", "The agent in region b", "The agent in region c"]
+    answer: [0, 1, 2]
+    explain: >
+      K3s's server runs the control plane and is also a node that runs pods, which is why the demo has one pod
+      in each of the three regions.
+    see: control-plane-and-nodes

@@ -64,7 +64,7 @@ func badge(id, rule string, pos int) catalog.Entry {
 		Doc: json.RawMessage(`{"id":"` + id + `","description":"d","icon":null,"rule":` + rule + `}`)}
 }
 
-// world is the core pack's curricula, a course awarding "intro-done", and three badges.
+// world is a course of two labs, a course awarding "intro-done", a retired course, and four badges.
 type world struct {
 	catalog memCatalog
 	repo    memRepo
@@ -78,11 +78,13 @@ type world struct {
 func newWorld() *world {
 	w := &world{
 		catalog: memCatalog{
-			{Kind: catalog.KindPack, Key: "core", PackID: "core", Doc: json.RawMessage(
-				`{"id":"core","curricula":[{"id":"cloud","levels":[{"labs":["a"]},{"labs":["b"]}]}]}`)},
+			{Kind: catalog.KindCourse, Key: "cloud", PackID: "core", Doc: json.RawMessage(`{"badge":null,"sections":[
+				{"items":[{"type":"lecture","ref":"intro"},{"type":"lab","ref":"a"}]},{"items":[{"type":"lab","ref":"b"}]}]}`)},
 			{Kind: catalog.KindCourse, Key: "k8s-intro", PackID: "core", Doc: json.RawMessage(`{"badge":"intro-done"}`)},
+			{Kind: catalog.KindCourse, Key: "gone", PackID: "core", Retired: true, Doc: json.RawMessage(
+				`{"badge":"first","sections":[{"items":[{"type":"lab","ref":"z"}]}]}`)},
 			badge("first", `{"type":"labs_passed","min":1}`, 0),
-			badge("cloud", `{"type":"curriculum_complete","curriculum":"cloud"}`, 1),
+			badge("cloud", `{"type":"labs_passed","min":2,"course":"cloud"}`, 1),
 			badge("intro-done", `{"type":"xp","min":100000}`, 2),
 			badge("old", `{"type":"labs_passed","min":0}`, 3),
 		},
@@ -129,7 +131,7 @@ func TestEvaluateAwardsOnceAndAnnounces(t *testing.T) {
 	w.labs[1] = append(w.labs[1], rewards.LabPass{Lab: "b", XP: 100})
 	w.courses[1] = []string{"k8s-intro"}
 	if got, _ := w.svc.Evaluate(ctx, 1); len(ids(got)) != 2 || got[0].ID != "cloud" || got[1].ID != "intro-done" {
-		t.Fatalf("curriculum and course: %v", ids(got))
+		t.Fatalf("a course's labs and a completed course: %v", ids(got))
 	}
 }
 

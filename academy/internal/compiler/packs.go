@@ -15,16 +15,15 @@ type Source struct {
 	FS   fs.FS
 }
 
-// loaded is a pack as read: Phase 10's document (pack, curricula, labs, badges; the labpack schema), its courses
+// loaded is a pack as read: Phase 10's document (pack, labs, badges; the labpack schema), its courses
 // (the course schema), each lab's files, and the problems met while reading.
 type loaded struct {
-	src           Source
-	doc           map[string]any
-	labIDs        []string // in file-name order, as the bundle lists them
-	curriculumIDs []string
-	courses       []*course
-	files         map[string]map[string]any
-	errs          []string
+	src     Source
+	doc     map[string]any
+	labIDs  []string // in file-name order, as the bundle lists them
+	courses []*course
+	files   map[string]map[string]any
+	errs    []string
 }
 
 // course is a course folder: doc is {course, lectures, quizzes, challenges}, the ids in file-name order.
@@ -187,10 +186,10 @@ func fsError(err error) string {
 // load reads a pack folder.
 func load(src Source) *loaded {
 	r := &reader{fsys: src.FS}
-	curricula, labs := map[string]any{}, ordered{}
-	for _, name := range r.glob("curricula", ".yml") {
-		curricula[strings.TrimSuffix(name, ".yml")] = r.yaml("curricula/"+name, map[string]any{})
+	if len(r.glob("curricula", ".yml")) > 0 {
+		r.errs = append(r.errs, "curricula: Phase 10 curricula are courses now (courses/<id>/course.yml)")
 	}
+	labs := ordered{}
 	for _, name := range r.glob("labs", ".yml") {
 		labs.set(strings.TrimSuffix(name, ".yml"), r.yaml("labs/"+name, map[string]any{}))
 	}
@@ -201,7 +200,7 @@ func load(src Source) *loaded {
 	p := &loaded{
 		src: src,
 		doc: map[string]any{
-			"pack": r.yaml("pack.yml", map[string]any{}), "curricula": curricula, "labs": labs.values, "badges": badges,
+			"pack": r.yaml("pack.yml", map[string]any{}), "labs": labs.values, "badges": badges,
 		},
 		files: map[string]map[string]any{},
 	}
@@ -209,10 +208,6 @@ func load(src Source) *loaded {
 		p.doc["labs"] = map[string]any{}
 	}
 	p.labIDs = labs.keys
-	p.curriculumIDs = r.glob("curricula", ".yml")
-	for i, name := range p.curriculumIDs {
-		p.curriculumIDs[i] = strings.TrimSuffix(name, ".yml")
-	}
 	for _, cid := range r.subdirs("courses", "course.yml") {
 		p.courses = append(p.courses, loadCourse(r, cid))
 	}
