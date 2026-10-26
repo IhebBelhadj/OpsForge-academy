@@ -1,0 +1,23 @@
+extends: default
+
+ignore: |
+  .git/
+  web/node_modules/
+  web/pnpm-lock.yaml
+  # YAML 1.1 edge cases on purpose (octal, yes/no, ...): the compiler must read them as PyYAML did
+  academy/internal/compiler/testdata/yaml11.yml
+
+rules:
+  line-length:
+    max: 120
+  document-start: disable
+  truthy:
+    check-keys: false
+  braces:
+    max-spaces-inside: 1
+  comments:
+    min-spaces-from-content: 1
+  comments-indentation: false
+  octal-values:
+    forbid-implicit-octal: true
+    forbid-explicit-octal: true
