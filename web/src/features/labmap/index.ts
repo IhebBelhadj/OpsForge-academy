@@ -1,1 +1,1 @@
-export { LabMap } from "./lab-map";
+export { LabMap, labChanged, LiveLabMap } from "./lab-map";

@@ -21,6 +21,10 @@ export type ItemType = Schemas["ItemType"];
 export type QuizAttempt = Schemas["QuizAttempt"];
 export type QuizQuestion = Schemas["QuizQuestion"];
 export type QuizAttemptSummary = Schemas["QuizAttemptSummary"];
+export type LabAttempt = Schemas["LabAttempt"];
+export type LabOutcome = Schemas["LabOutcome"];
+export type Operation = Schemas["Operation"];
+export type LabState = Schemas["LabState"];
 
 /** A problem document the API answered, as an Error (queries reject with it). */
 export class ProblemError extends Error {
@@ -83,6 +87,9 @@ export const keys = {
   course: (course: string) => ["courses", course] as const,
   item: (course: string, item: string) => ["courses", course, "items", item] as const,
   quizAttempts: (course: string, item: string) => ["courses", course, "items", item, "quiz-attempts"] as const,
+  currentAttempt: ["attempts", "current"] as const,
+  labState: ["lab", "state"] as const,
+  workspace: (workspace: string) => ["workspaces", workspace] as const,
 };
 
 function fail(error: unknown): never {
@@ -122,6 +129,39 @@ export const queries = {
       return data?.attempts ?? fail(error);
     },
   }),
+  /** The learner's lab in setup or running, or null. */
+  currentAttempt: () => ({
+    queryKey: keys.currentAttempt,
+    queryFn: async () => {
+      const { data, error } = await api.GET("/api/v1/attempts/current");
+      return data ? data.attempt : fail(error);
+    },
+  }),
+  workspaceTree: (workspace: string) => ({
+    queryKey: keys.workspace(workspace),
+    queryFn: async () => {
+      const { data, error } = await api.GET("/api/v1/workspaces/{workspace}/tree", {
+        params: { path: { workspace } },
+      });
+      return data ?? fail(error);
+    },
+  }),
+  workspaceFile: (workspace: string, path: string) => ({
+    queryKey: [...keys.workspace(workspace), "files", path] as const,
+    queryFn: async () => {
+      const { data, error } = await api.GET("/api/v1/workspaces/{workspace}/files", {
+        params: { path: { workspace }, query: { path } },
+      });
+      return data ?? fail(error);
+    },
+  }),
+  labState: () => ({
+    queryKey: keys.labState,
+    queryFn: async () => {
+      const { data, error } = await api.GET("/api/v1/lab/state");
+      return data ?? fail(error);
+    },
+  }),
 };
 
 /** Changes, for useMutation: each resolves with the API's answer or rejects with a ProblemError. */
@@ -142,6 +182,48 @@ export const actions = {
       body: { answers },
     });
     return data ?? fail(error);
+  },
+  /** Starts a lab: the attempt, and the operation running its setup (202). */
+  startLab: async ({ lab, course, item }: { lab: string; course: string; item: string }) => {
+    const { data, error } = await api.POST("/api/v1/labs/{lab}/attempts", {
+      params: { path: { lab } },
+      body: { course, item },
+    });
+    return data ?? fail(error);
+  },
+  labAttempt: async (attempt: number) => {
+    const { data, error } = await api.GET("/api/v1/attempts/{attempt}", { params: { path: { attempt } } });
+    return data ?? fail(error);
+  },
+  checkStep: async ({ attempt, step, answer }: { attempt: number; step: string; answer?: number }) => {
+    const { data, error } = await api.POST("/api/v1/attempts/{attempt}/checks", {
+      params: { path: { attempt } },
+      body: answer === undefined ? { step } : { step, answer },
+    });
+    return data ?? fail(error);
+  },
+  openHint: async ({ attempt, step }: { attempt: number; step: string }) => {
+    const { data, error } = await api.POST("/api/v1/attempts/{attempt}/hints", {
+      params: { path: { attempt } },
+      body: { step },
+    });
+    return data ?? fail(error);
+  },
+  resetLab: async (attempt: number) => {
+    const { data, error } = await api.POST("/api/v1/attempts/{attempt}/reset", { params: { path: { attempt } } });
+    return data ?? fail(error);
+  },
+  abandonLab: async (attempt: number) => {
+    const { data, error } = await api.POST("/api/v1/attempts/{attempt}/abandon", { params: { path: { attempt } } });
+    return data ?? fail(error);
+  },
+  operation: async (operation: string) => {
+    const { data, error } = await api.GET("/api/v1/operations/{operation}", { params: { path: { operation } } });
+    return data ?? fail(error);
+  },
+  openTerminal: async (size: { workspace: string; cols: number; rows: number }) => {
+    const { data, error } = await api.POST("/api/v1/terminals", { body: size });
+    return data?.session ?? fail(error);
   },
 };
 

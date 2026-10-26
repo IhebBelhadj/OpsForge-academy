@@ -1,11 +1,33 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import { renderRoute } from "@/test/render";
-import { startQuizAttempt } from "@/test/server";
+import { labAttempt, startQuizAttempt } from "@/test/server";
 
 vi.mock("@/features/lecture/highlight", () => ({ highlight: () => Promise.resolve(null) }));
+
+// jsdom has no canvas for xterm: the terminal is a stand-in that connects at once and records what is typed
+const typed: string[] = [];
+vi.mock("@/features/terminal/terminal-pane", async () => {
+  const { useEffect } = await import("react");
+  return {
+    TerminalPane: ({
+      onStatus,
+      onInput,
+    }: {
+      onStatus?: (s: string) => void;
+      onInput?: (fn: ((t: string) => void) | null) => void;
+    }) => {
+      useEffect(() => {
+        onStatus?.("connected");
+        onInput?.((t: string) => typed.push(t));
+        return () => onInput?.(null);
+      }, []); // eslint-disable-line react-hooks/exhaustive-deps
+      return <div role="application" aria-label="Terminal" />;
+    },
+  };
+});
 
 describe("the course player", () => {
   it("plays a lecture with its number, text and resources", async () => {
@@ -89,17 +111,80 @@ describe("the course player", () => {
     expect(screen.getAllByText("nothing (skipped)")).toHaveLength(2);
   });
 
-  it("runs a lab: start, setup, a failed check with what was wanted, then the next step", async () => {
+  it("runs a lab: start, a hint, a failed check with what was wanted, the next step, then the pass", async () => {
     const user = userEvent.setup();
     renderRoute("/learn/k8s-intro/meet-the-cluster");
     expect(await screen.findByRole("heading", { name: /List the nodes/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Check" })).toBeDisabled();
     await user.click(screen.getByRole("button", { name: "Start lab" }));
-    expect(await screen.findByText("Connected", {}, { timeout: 4000 })).toBeInTheDocument();
+    expect(await screen.findByText("Connected")).toBeInTheDocument();
+    expect(screen.getByText("Step 1 of 2")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /Show hint 1 of 1/ }));
+    expect(await screen.findByText(/Nodes are listed with/)).toBeInTheDocument();
+    expect(screen.getByText(/1 hint used/)).toBeInTheDocument();
+
     await user.click(screen.getByRole("button", { name: "Check" }));
-    const failed = await screen.findByRole("alert", {}, { timeout: 2000 });
+    const failed = await screen.findByRole("alert");
+    expect(within(failed).getByText("== 3")).toBeInTheDocument();
     expect(within(failed).getByText("(none)")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Check" }));
-    expect(await screen.findByText("Step 2 of 2", {}, { timeout: 2000 })).toBeInTheDocument();
+    await user.click(await screen.findByRole("button", { name: "Check" }));
+    expect(await screen.findByText("Step 2 of 2")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Applied" }));
+    expect(await screen.findByRole("heading", { name: "Lab passed" })).toBeInTheDocument();
+    expect(screen.getByText("+90")).toBeInTheDocument();
+    expect(screen.getByText("7 min")).toBeInTheDocument();
+  });
+
+  it("types a step's command into the terminal with Run", async () => {
+    const user = userEvent.setup();
+    labAttempt(); // running already: the page picks it up
+    renderRoute("/learn/k8s-intro/meet-the-cluster");
+    await user.click(await screen.findByRole("button", { name: "Run in the terminal" }));
+    expect(typed).toEqual(["opsforge kubectl get nodes\r"]);
+  });
+
+  it("refuses to start while another lab runs, and offers to abandon it", async () => {
+    const user = userEvent.setup();
+    labAttempt({ lab: "losing-a-site", course: null, item: null });
+    renderRoute("/learn/k8s-intro/meet-the-cluster");
+    expect(await screen.findByRole("heading", { name: "Another lab is running" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /Abandon it/ }));
+    expect(await screen.findByRole("button", { name: "Start lab" })).toBeInTheDocument();
+  });
+
+  it("abandons a running lab after asking, and resets one", async () => {
+    const user = userEvent.setup();
+    labAttempt({
+      current_step: "apply",
+      steps: [
+        { id: "nodes", passed: true, hints: [] },
+        { id: "apply", passed: false, hints: [] },
+      ],
+    });
+    renderRoute("/learn/k8s-intro/meet-the-cluster");
+    expect(await screen.findByText("Step 2 of 2")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /Reset lab/ }));
+    expect(await screen.findByText("Step 1 of 2")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /Abandon/ }));
+    await user.click(await screen.findByRole("button", { name: "Abandon lab" }));
+    expect(await screen.findByRole("button", { name: "Start lab" })).toBeInTheDocument();
+  });
+
+  it("draws the lab map from the lab's state", async () => {
+    renderRoute("/learn/k8s-intro/meet-the-cluster");
+    // A click inside a resizable panel is a divider grab in jsdom (0×0 layout): focus activates the tab instead
+    const tab = await screen.findByRole("tab", { name: /Lab map/ });
+    act(() => {
+      tab.focus();
+    });
+    const map = await screen.findByRole("img", { name: /Lab map/ });
+    expect(map).toHaveAccessibleName(
+      "Lab map: link a-b as configured, 40 ms; link a-c cut, 120 ms; link b-c changed live, 200 ms",
+    );
+    expect(screen.getByText("c-w1 (Stopped)")).toBeInTheDocument();
+    expect(screen.queryByText("a-gw")).not.toBeInTheDocument();
   });
 
   it("solves a challenge: the starter fails, an edited manifest is accepted", async () => {

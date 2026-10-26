@@ -155,8 +155,8 @@ the history re-imported, the six labs passed again on it. **Next:** M2 (the cour
   lecture,quiz,lab,challenge,editor,terminal,labmap}`): routes `/` (home), `/roadmap`, `/courses`, `/courses/$course`,
   `/practice`, `/profile`, `/settings`, `/learn/$course/$item` (the player brings its own chrome; the root shell steps
   aside for `/learn/`; labs and challenges fill the window and fold the course content away). Data the API has no
-  endpoint for yet comes from `web/src/mock/` (one import per screen, replaced by a query when its module lands). The editor and terminal are placeholders with
-  Monaco's and xterm's props (`CodeEditor`, `TerminalPane`). jsdom lays out at 0×0, so react-resizable-panels takes
+  endpoint for yet comes from `web/src/mock/` (one import per screen, replaced by a query when its module lands). The editor is a placeholder with Monaco's props
+  (`CodeEditor`). jsdom lays out at 0×0, so react-resizable-panels takes
   any click inside a panel for a divider grab: tests focus inputs directly. The theme is a store (`useTheme`,
   `setTheme`) shared by the header toggle and settings. `pnpm dev`'s proxy sends the platform's Host and Origin. The API client
   (`src/api/client.ts`) opens the session itself (GET /me, else POST /sessions), adds `X-CSRF-Token` to changes and
@@ -164,8 +164,15 @@ the history re-imported, the six labs passed again on it. **Next:** M2 (the cour
   react-markdown + remark-gfm + rehype-sanitize (no raw HTML; `[!NOTE]` alerts via `data-alert`), Shiki through
   `shiki/core` with the languages listed in `highlight.ts` (the full bundle adds 13 MB to the binary). The quiz runs on
   the quiz API (`queries.quizAttempts`, `actions.startQuiz/quizAttempt/submitQuiz`: changes are `actions.*` for
-  `useMutation`; the timer submits by itself at the deadline, the server allows 5 s grace); lab and challenge items run
-  on mock runtime data until their screens are hooked up. Quiz prompts and explanations are Markdown (`Markdown
+  `useMutation`; the timer submits by itself at the deadline, the server allows 5 s grace); the lab runs on labsession
+  (`actions.startLab/checkStep/openHint/resetLab/abandonLab`, each long one followed with `awaitOperation` from
+  `src/api/events.ts`: the page's one EventSource on `/api/v1/events`, `operation` events, polling
+  `/operations/{id}` as a fallback; the attempt is read again after each); its terminal is xterm.js
+  (`features/terminal`, loaded lazily as its own chunk) on `/ws/terminal/{session}`, reconnecting to the same session,
+  kept mounted across tabs; a shell code block gets **Run** (types it + Enter) through the `TerminalInput` context the
+  lab provides; the lab map draws `/lab/state` (`LiveLabMap`); the Files tab is read-only until M3's editor. Challenge
+  items run on mock runtime data until M3. Player tests replace `TerminalPane` with a stand-in (jsdom has no canvas)
+  and activate tabs inside resizable panels by focus. Quiz prompts and explanations are Markdown (`Markdown
   variant="compact"`: sans, not the lecture serif). Page tests render the whole route tree with
   `renderRoute(path)` against MSW fixtures (`src/test/server.ts`, the demo course); `src/test/setup.ts` stubs what
   jsdom lacks (matchMedia, pointer capture, scrollIntoView). The e2e suite serves
