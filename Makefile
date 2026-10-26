@@ -7,7 +7,7 @@ SHELLCHECK := $(shell shellcheck --version >/dev/null 2>&1 && echo shellcheck ||
 # (ACADEMY_OPSFORGE_URL, ACADEMY_OPSFORGE_TOKEN_FILE, ACADEMY_OPSFORGE_CA_FILE) and takes its contract from its git
 # repository (contract-update). Nothing here reads an OpsForge checkout.
 OPSFORGE_REPO ?= https://github.com/IhebBelhadj/OpsForge.git
-OPSFORGE_REF ?= master
+OPSFORGE_REF ?= v1.0.0
 
 .PHONY: check lint-shell lint-yaml academy academy-test academy-lint academy-validate web-deps web-build web-check \
 	gen gen-check e2e contract-check contract-update

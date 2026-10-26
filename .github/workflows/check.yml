@@ -7,11 +7,12 @@ on:
     - cron: "0 3 * * *"  # nightly: the contract tests against OpsForge's master
 
 # OpsForge (the lab) is another project: the go job runs its API as a service, outside this checkout, and gives
-# Academy only its URL and token (as on separate machines). OPSFORGE_REF: master until OpsForge tags v1.0.0, then the
-# release pinned in academy/contract/PINNED (and master on the nightly run).
+# Academy only its URL and token (as on separate machines). OPSFORGE_REF: the release pinned in
+# academy/contract/PINNED (raise it with `make contract-update OPSFORGE_REF=<tag>`), master on the nightly run (what
+# the next OpsForge release will be).
 env:
   OPSFORGE_REPO: https://github.com/IhebBelhadj/OpsForge.git
-  OPSFORGE_REF: master
+  OPSFORGE_REF: ${{ github.event_name == 'schedule' && 'master' || 'v1.0.0' }}
 
 jobs:
   go:

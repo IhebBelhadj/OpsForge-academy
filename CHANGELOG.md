@@ -6,8 +6,14 @@ OpsForge range it supports (its API contract: `academy/contract/PINNED`). Histor
 
 ## Unreleased
 
+## 0.1.0 (2026-10-26)
+
+The first release: M0 and M1 (in OpsForge's `docs/PLAN.md`), its own repository, and every lab attempt in an
+OpsForge sandbox. **Supports OpsForge 1.0.x and later 1.x** (contract 1, minor 0 or more; `academy/contract/PINNED`:
+`v1.0.0`).
+
 - **Sandboxes (2026-10-26, split step 7):** every lab attempt runs in an OpsForge sandbox (contract pinned at
-  OpsForge `b01cd79`). `labsession` takes one `Sandboxes` port (`Create`/`Await`/`Probe`/`Reset`/`Delete`) instead of
+  OpsForge `v1.0.0`). `labsession` takes one `Sandboxes` port (`Create`/`Await`/`Probe`/`Reset`/`Delete`) instead of
   `Run`/`Probe`/`Heal` on a namespace and workspace it named; OpsForge checks the lab's requirements (409s →
   `lab-down`, `lab-busy`, `lab-unavailable` with what is missing) and cleans up. The attempt's workspace is its
   sandbox (files and terminal under `/v1/sandboxes/{id}/`), so its files go with it; `POST /api/v1/terminals` now

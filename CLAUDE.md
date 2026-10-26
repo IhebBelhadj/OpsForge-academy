@@ -9,8 +9,9 @@ structural changes (architecture, content model, milestones, tests first).
 
 **Now** (2026-10-26): moved out of OpsForge (its `docs/PLAN.md` Phase 11 holds the history up to here: M0, spike S6,
 M1, split steps 1-6) and **split step 7 done**: every lab attempt runs in an OpsForge sandbox (`labsession` on one
-`Sandboxes` port; the six core labs passed live through them). **Next:** tags (OpsForge `v1.0.0`, then this repo's
-`v0.1.0`), step 8 (PostgreSQL in Docker), then M2 (player and parity).
+`Sandboxes` port; the six core labs passed live through them). **Released `v0.1.0`** (2026-10-26) on OpsForge
+`v1.0.0` (contract 1.0, pinned in `academy/contract/PINNED`). **Next:** step 8 (PostgreSQL in Docker), then M2 (player
+and parity).
 
 ## Layout / index
 
