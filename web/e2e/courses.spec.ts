@@ -62,13 +62,35 @@ test("a quiz is drawn, scored and passed on the server", async ({ page }) => {
   await expect(page.getByLabel("Right")).toHaveCount(2);
 });
 
-test("a lab runs in its sandbox: terminal, Run, checks, then the pass", async ({ page }) => {
+test("a lab runs in its sandbox: terminal, editor, Run, checks, then the pass", async ({ page, browserName }) => {
   await page.goto("/learn/k8s-intro/meet-the-cluster");
   await page.getByRole("button", { name: "Start lab" }).click();
   // The fake OpsForge's shell: a banner, then it echoes what is typed
   const terminal = page.locator(".xterm-rows");
   await expect(terminal).toContainText("Lab terminal in", { timeout: 15_000 });
   await expect(page.getByText("Connected")).toBeVisible();
+
+  // The editor (Monaco) on the lab's files: an edit saved with Ctrl+S
+  await page.getByRole("tab", { name: "Editor" }).click();
+  const code = page.locator(".monaco-editor .view-lines");
+  await expect(code).toContainText("kind: ConfigMap", { timeout: 15_000 });
+  await code.click();
+  await page.keyboard.press("ControlOrMeta+End");
+  await page.keyboard.type("\n  farewell: bye");
+  await expect(page.getByRole("status").filter({ hasText: "Unsaved" })).toBeVisible();
+  await page.keyboard.press("ControlOrMeta+S");
+  await expect(page.getByRole("status").filter({ hasText: "Saved" })).toBeVisible();
+
+  // Vim's keys: yy yanks the line to the clipboard
+  if (browserName === "chromium") {
+    await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+    await page.getByRole("switch", { name: "Vim" }).click();
+    await code.click();
+    await page.keyboard.press("Escape");
+    await page.keyboard.type("ggyy");
+    await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe("apiVersion: v1\n");
+    await page.getByRole("switch", { name: "Vim" }).click();
+  }
 
   await page.getByRole("button", { name: "Run in the terminal" }).first().click();
   await expect(terminal).toContainText("opsforge kubectl get nodes");

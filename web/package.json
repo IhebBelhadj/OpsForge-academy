@@ -31,6 +31,8 @@
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
     "lucide-react": "^1.61.0",
+    "monaco-editor": "0.57.0",
+    "monaco-vim": "0.4.4",
     "openapi-fetch": "^0.17.0",
     "radix-ui": "^1.8.1",
     "react": "^19.3.1",

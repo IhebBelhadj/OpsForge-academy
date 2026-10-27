@@ -155,7 +155,7 @@ the history re-imported, the six labs passed again on it. **Next:** M2 (the cour
   lecture,quiz,lab,challenge,editor,terminal,labmap}`): routes `/` (home), `/roadmap`, `/courses`, `/courses/$course`,
   `/practice`, `/profile`, `/settings`, `/learn/$course/$item` (the player brings its own chrome; the root shell steps
   aside for `/learn/`; labs and challenges fill the window and fold the course content away). Data the API has no
-  endpoint for yet comes from `web/src/mock/` (one import per screen, replaced by a query when its module lands). The editor is a placeholder with Monaco's props
+  endpoint for yet comes from `web/src/mock/` (one import per screen, replaced by a query when its module lands). Challenges still edit in a placeholder
   (`CodeEditor`). jsdom lays out at 0×0, so react-resizable-panels takes
   any click inside a panel for a divider grab: tests focus inputs directly. The theme is a store (`useTheme`,
   `setTheme`) shared by the header toggle and settings. `pnpm dev`'s proxy sends the platform's Host and Origin. The API client
@@ -170,7 +170,11 @@ the history re-imported, the six labs passed again on it. **Next:** M2 (the cour
   `/operations/{id}` as a fallback; the attempt is read again after each); its terminal is xterm.js
   (`features/terminal`, loaded lazily as its own chunk) on `/ws/terminal/{session}`, reconnecting to the same session,
   kept mounted across tabs; a shell code block gets **Run** (types it + Enter) through the `TerminalInput` context the
-  lab provides; the lab map draws `/lab/state` (`LiveLabMap`); the Files tab is read-only until M3's editor. Challenge
+  lab provides; the lab map draws `/lab/state` (`LiveLabMap`); the Editor tab is `WorkspaceEditor` (`features/editor`:
+  Monaco and monaco-vim in their own lazy chunk `monaco.ts`, imported from `monaco-editor/<path>` (a Vite alias maps
+  monaco-vim's `monaco-editor/esm/vs/...`); explorer, tabs, Ctrl+S / `:w` saving with `base_sha256` and a 409 dialog;
+  Vim yanks copy to the clipboard), also kept mounted; its tests replace `EditorSurface` with a text area. The e2e
+  projects run one after another (one learner, one lab at a time). Challenge
   items run on mock runtime data until M3. Player tests replace `TerminalPane` with a stand-in (jsdom has no canvas)
   and activate tabs inside resizable panels by focus. Quiz prompts and explanations are Markdown (`Markdown
   variant="compact"`: sans, not the lecture serif). Page tests render the whole route tree with

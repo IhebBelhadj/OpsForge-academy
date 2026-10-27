@@ -68,8 +68,9 @@ experience: schema completion, hover docs, validation squiggles, formatting.
 
 **Integration (what we build around it).**
 
-- **Self-hosted**, no CDN: `loader.config({ monaco })` with workers from Vite's `?worker` imports (editor worker,
-  yaml worker from monaco-yaml, json worker).
+- **Self-hosted**, no CDN: `monaco-editor` imported directly (no React wrapper) in one lazily loaded chunk
+  (`features/editor/monaco.ts`: the editor features and every language's colouring, each language loaded on use),
+  workers from Vite's `?worker` imports (the editor worker; the yaml worker from monaco-yaml with M3).
 - **Kubernetes schemas from the live cluster**: the `schemas` module turns the cluster's `/openapi/v3` into JSON
   Schemas per kind (cached per server version, CRDs included: Flux, Skupper, Traefik, Gateway API), served at
   `/api/v1/schemas/...`; monaco-yaml maps a document to the schema by its `apiVersion`/`kind`. Completion and
@@ -84,7 +85,13 @@ experience: schema completion, hover docs, validation squiggles, formatting.
   Monaco markers from the diagnostics), **Apply to cluster**, **Diff with cluster** (fetch the live object; Monaco
   diff editor), **Diff with solution** (challenges, after a pass).
 - Theme: a Monaco theme derived from our tokens (light and dark), Shiki uses the same colours.
-- Optional later: `monaco-vim` toggle; inline AI is out of scope.
+- **Vim**: a `monaco-vim` switch in the status bar (remembered per browser), Vim's mode and `:` line in the status
+  bar, `:w` saves. Yanks go to the system clipboard as with Neovim's `clipboard=unnamedplus` (`y`, `yy`, a visual
+  `y`; `"+` and `"*` are clipboard registers); deletes stay in Vim's registers. Inline AI is out of scope.
+- **Built in M2** (the lab's Editor tab, `WorkspaceEditor`): explorer (new, rename, delete), tabs with dirty markers,
+  Ctrl+S / `:w` saving against the version read (`base_sha256`): a 409 asks "keep mine" or "take the lab's
+  version"; the workspace is read again when the tab shows. Still M3: monaco-yaml and the cluster's schemas,
+  autosave, `workspace` SSE events, the actions, and the challenge screen moving onto it.
 
 ## Terminal
 

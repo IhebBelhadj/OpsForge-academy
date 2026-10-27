@@ -25,6 +25,7 @@ export type LabAttempt = Schemas["LabAttempt"];
 export type LabOutcome = Schemas["LabOutcome"];
 export type Operation = Schemas["Operation"];
 export type LabState = Schemas["LabState"];
+export type WorkspaceFile = Schemas["WorkspaceFile"];
 
 /** A problem document the API answered, as an Error (queries reject with it). */
 export class ProblemError extends Error {
@@ -220,6 +221,37 @@ export const actions = {
   operation: async (operation: string) => {
     const { data, error } = await api.GET("/api/v1/operations/{operation}", { params: { path: { operation } } });
     return data ?? fail(error);
+  },
+  /** Saves a file; with base, only over that version (409 when the terminal changed it since). */
+  saveFile: async ({
+    workspace,
+    path,
+    content,
+    base,
+  }: {
+    workspace: string;
+    path: string;
+    content: string;
+    base?: string;
+  }) => {
+    const { data, error } = await api.PUT("/api/v1/workspaces/{workspace}/files", {
+      params: { path: { workspace }, query: { path } },
+      body: { content, ...(base === undefined ? {} : { base_sha256: base }) },
+    });
+    return data ?? fail(error);
+  },
+  deleteFile: async ({ workspace, path }: { workspace: string; path: string }) => {
+    const { error } = await api.DELETE("/api/v1/workspaces/{workspace}/files", {
+      params: { path: { workspace }, query: { path } },
+    });
+    if (error) fail(error);
+  },
+  moveFile: async ({ workspace, from, to }: { workspace: string; from: string; to: string }) => {
+    const { error } = await api.POST("/api/v1/workspaces/{workspace}/moves", {
+      params: { path: { workspace } },
+      body: { from, to },
+    });
+    if (error) fail(error);
   },
   openTerminal: async (size: { workspace: string; cols: number; rows: number }) => {
     const { data, error } = await api.POST("/api/v1/terminals", { body: size });

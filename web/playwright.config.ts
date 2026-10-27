@@ -22,10 +22,18 @@ export default defineConfig({
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? [["github"], ["html", { open: "never" }]] : "list",
   use: { baseURL: `http://127.0.0.1:${String(port)}`, trace: "retain-on-failure" },
+  // The projects share the one learner, who runs one lab at a time: they run one after another (the tests of each
+  // in parallel), so a project's lab journey never meets another's lab
   projects: [
     { name: "chromium", use: { ...devices["Desktop Chrome"] } },
-    { name: "chromium-390", use: { ...devices["Desktop Chrome"], viewport: { width: 390, height: 844 } } },
-    ...(process.env.CI ? [{ name: "firefox", use: { ...devices["Desktop Firefox"] } }] : []),
+    {
+      name: "chromium-390",
+      use: { ...devices["Desktop Chrome"], viewport: { width: 390, height: 844 } },
+      dependencies: ["chromium"],
+    },
+    ...(process.env.CI
+      ? [{ name: "firefox", use: { ...devices["Desktop Firefox"] }, dependencies: ["chromium-390"] }]
+      : []),
   ],
   webServer: [
     {

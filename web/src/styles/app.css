@@ -59,6 +59,11 @@
   --band-soft: #c9cbd0;
   --term-bg: #1b1c1e;
   --term-fg: #e6e7e9;
+  /* The code editor's chrome (explorer, tabs, status bar): dark in both themes, from the terminal's colours */
+  --code-side: color-mix(in oklab, var(--term-bg), white 5%);
+  --code-hover: color-mix(in oklab, var(--term-bg), white 10%);
+  --code-rule: color-mix(in oklab, var(--term-bg), white 13%);
+  --code-soft: color-mix(in oklab, var(--term-fg), var(--term-bg) 38%);
   --focus: #1d5fbf;
   color-scheme: light;
 
@@ -198,6 +203,10 @@
   --color-band-soft: var(--band-soft);
   --color-term-bg: var(--term-bg);
   --color-term-fg: var(--term-fg);
+  --color-code-side: var(--code-side);
+  --color-code-hover: var(--code-hover);
+  --color-code-rule: var(--code-rule);
+  --color-code-soft: var(--code-soft);
 
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -332,4 +341,12 @@
   .terminal-cursor {
     animation: none;
   }
+}
+
+/* monaco-vim's mode line and : command line, in the code editor's status bar */
+.vim-status input {
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  outline: none;
 }

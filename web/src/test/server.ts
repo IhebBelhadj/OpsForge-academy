@@ -232,7 +232,24 @@ export function resetLab() {
   labAttempts = [];
   operations = {};
   probes = {};
+  resetWorkspace();
 }
+
+/** The lab's workspace: its files and a version for each (a counter stands in for the sha256). */
+let workspace: Record<string, { content: string; sha256: string }> = {};
+let versions = 0;
+/** Writes a file as the terminal would: a new version under whatever the editor holds. */
+export function writeWorkspaceFile(path: string, content: string) {
+  versions += 1;
+  workspace[path] = { content, sha256: `v${String(versions)}` };
+}
+function resetWorkspace() {
+  workspace = {};
+  versions = 0;
+  writeWorkspaceFile("hello.yaml", "apiVersion: v1\nkind: Pod\n");
+  writeWorkspaceFile("k8s/web.yaml", "kind: Deployment\n");
+}
+resetWorkspace();
 
 export function labAttempt(over: Partial<Schemas["LabAttempt"]> = {}): Schemas["LabAttempt"] {
   const id = labAttempts.length + 1;
@@ -465,17 +482,53 @@ export const server = setupServer(
     return HttpResponse.json(op);
   }),
   http.get("*/api/v1/lab/state", () => HttpResponse.json(labStateFixture)),
-  http.get("*/api/v1/workspaces/:workspace/tree", ({ params }) =>
-    HttpResponse.json({
+  http.get("*/api/v1/workspaces/:workspace/tree", ({ params }) => {
+    const files = Object.entries(workspace).map(([path, f]) => ({ path, size: f.content.length }));
+    return HttpResponse.json({
       workspace: String(params.workspace),
-      files: [{ path: "hello.yaml", size: 40 }],
-      bytes: 40,
+      files,
+      bytes: files.reduce((n, f) => n + f.size, 0),
       limit_bytes: 10485760,
-    }),
-  ),
-  http.get("*/api/v1/workspaces/:workspace/files", () =>
-    HttpResponse.json({ path: "hello.yaml", content: "apiVersion: v1\nkind: Pod\n", sha256: "0".repeat(64) }),
-  ),
+    });
+  }),
+  http.get("*/api/v1/workspaces/:workspace/files", ({ request }) => {
+    const path = new URL(request.url).searchParams.get("path") ?? "";
+    const f = workspace[path];
+    return f
+      ? HttpResponse.json({ path, ...f })
+      : HttpResponse.json(notFound("no such workspace or file"), { status: 404, ...problem });
+  }),
+  http.put("*/api/v1/workspaces/:workspace/files", async ({ request }) => {
+    const path = new URL(request.url).searchParams.get("path") ?? "";
+    const body = (await request.json()) as Schemas["WorkspaceFileWrite"];
+    if (body.base_sha256 !== undefined && body.base_sha256 !== (workspace[path]?.sha256 ?? ""))
+      return HttpResponse.json(
+        { type: "/problems/conflict", title: "The file changed", status: 409, detail: "the file changed" },
+        { status: 409, ...problem },
+      );
+    writeWorkspaceFile(path, body.content);
+    return HttpResponse.json({ path, ...workspace[path] });
+  }),
+  http.delete("*/api/v1/workspaces/:workspace/files", ({ request }) => {
+    const path = new URL(request.url).searchParams.get("path") ?? "";
+    if (!workspace[path]) return HttpResponse.json(notFound("no such file"), { status: 404, ...problem });
+    const { [path]: _, ...rest } = workspace;
+    workspace = rest;
+    return new HttpResponse(null, { status: 204 });
+  }),
+  http.post("*/api/v1/workspaces/:workspace/moves", async ({ request }) => {
+    const { from, to } = (await request.json()) as Schemas["WorkspaceMove"];
+    const f = workspace[from];
+    if (!f) return HttpResponse.json(notFound("no such file"), { status: 404, ...problem });
+    if (workspace[to])
+      return HttpResponse.json(
+        { type: "/problems/exists", title: "Already exists", status: 409, detail: "the target path exists" },
+        { status: 409, ...problem },
+      );
+    const { [from]: _, ...rest } = workspace;
+    workspace = { ...rest, [to]: f };
+    return new HttpResponse(null, { status: 204 });
+  }),
   http.get("*/api/v1/courses/:course/items/:item", ({ params }) => {
     const item = (fixtures.items as Record<string, Schemas["Item"]>)[String(params.item)];
     return params.course === fixtures.course.id && item

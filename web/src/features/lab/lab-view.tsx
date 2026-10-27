@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { Check, ChevronDown, Lightbulb, Loader2, Play, RefreshCw, RotateCcw, Square } from "lucide-react";
+import { Check, ChevronDown, Lightbulb, Loader2, Play, RotateCcw, Square } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 
 import { actions, type Item, keys, type LabAttempt, type LabOutcome, type Operation, queries } from "@/api/client";
@@ -18,6 +18,7 @@ import {
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { WorkspaceEditor } from "@/features/editor";
 import { labChanged, LiveLabMap } from "@/features/labmap";
 import { Markdown } from "@/features/lecture";
 import { TerminalInput, TerminalPane, type TerminalStatus } from "@/features/terminal";
@@ -213,7 +214,7 @@ export function LabView({ item, number, next }: { item: Item; number: string; ne
       <div className="flex items-center justify-between gap-2 border-b border-rule bg-enamel pr-3">
         <TabsList variant="line" className="h-10 rounded-none bg-transparent px-1">
           <TabsTrigger value="terminal">Terminal</TabsTrigger>
-          {lab.files.length ? <TabsTrigger value="files">Files</TabsTrigger> : null}
+          <TabsTrigger value="editor">Editor</TabsTrigger>
           <TabsTrigger value="map" className="gap-2">
             Lab map
             {changed ? (
@@ -254,15 +255,14 @@ export function LabView({ item, number, next }: { item: Item; number: string; ne
           />
         )}
       </TabsContent>
-      {lab.files.length ? (
-        <TabsContent value="files" className="min-h-0 bg-surface">
-          {live ? (
-            <Files workspace={attempt.workspace} />
-          ) : (
-            <p className="p-5 text-sm text-ink-soft">The lab's files appear here once it runs.</p>
-          )}
-        </TabsContent>
-      ) : null}
+      {/* Kept mounted too: open files and unsaved edits survive a look at the terminal */}
+      <TabsContent value="editor" forceMount className="min-h-0 data-[state=inactive]:hidden">
+        {live ? (
+          <WorkspaceEditor workspace={attempt.workspace} active={tab === "editor"} />
+        ) : (
+          <p className="p-5 text-sm text-ink-soft">The lab's files open here once it runs.</p>
+        )}
+      </TabsContent>
       <TabsContent value="map" className="min-h-0 overflow-auto bg-surface p-5">
         <LiveLabMap />
       </TabsContent>
@@ -650,52 +650,6 @@ function Debrief({
           <RotateCcw aria-hidden /> Run it again
         </Button>
       </div>
-    </div>
-  );
-}
-
-/** The attempt's workspace, read-only: the lab's files as they are in the sandbox (edit them in the terminal; the
- * editor comes with M3). */
-function Files({ workspace }: { workspace: string }) {
-  const tree = useQuery(queries.workspaceTree(workspace));
-  const [picked, setPicked] = useState<string>();
-  const path = picked ?? tree.data?.files[0]?.path;
-  const file = useQuery({ ...queries.workspaceFile(workspace, path ?? ""), enabled: Boolean(path) });
-  return (
-    <div className="flex h-full flex-col">
-      <div className="flex items-center gap-1 overflow-x-auto border-b border-rule bg-enamel px-2">
-        {(tree.data?.files ?? []).map((f) => (
-          <button
-            key={f.path}
-            type="button"
-            aria-pressed={f.path === path}
-            onClick={() => {
-              setPicked(f.path);
-            }}
-            className={cn(
-              "border-b-2 px-3 py-2 font-mono text-sm",
-              f.path === path ? "border-ink font-semibold" : "border-transparent text-ink-soft",
-            )}
-          >
-            {f.path}
-          </button>
-        ))}
-        <Button
-          variant="ghost"
-          size="sm"
-          className="ml-auto"
-          aria-label="Read the files again"
-          onClick={() => void Promise.all([tree.refetch(), file.refetch()])}
-        >
-          <RefreshCw aria-hidden />
-        </Button>
-      </div>
-      <pre className="min-h-0 flex-1 overflow-auto p-4 font-mono text-[0.84rem] leading-6">
-        {file.data?.content ?? (tree.data && !tree.data.files.length ? "No files yet." : "")}
-      </pre>
-      <p className="border-t border-rule px-4 py-2 text-xs text-ink-soft">
-        Read-only here: edit the files in the terminal. The editor comes later.
-      </p>
     </div>
   );
 }

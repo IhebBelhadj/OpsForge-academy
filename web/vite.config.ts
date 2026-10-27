@@ -23,7 +23,13 @@ export default defineConfig({
     react(),
     tailwindcss(),
   ],
-  resolve: { alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) } },
+  resolve: {
+    alias: [
+      { find: "@", replacement: fileURLToPath(new URL("./src", import.meta.url)) },
+      // monaco-vim imports monaco-editor/esm/vs/..., which monaco-editor's exports map does not list
+      { find: /^monaco-editor\/esm\/vs\/(.*)$/, replacement: "monaco-editor/$1" },
+    ],
+  },
   server: {
     proxy: {
       "/api": asAcademy,
@@ -32,5 +38,10 @@ export default defineConfig({
       "/ws": { ...asAcademy, ws: true },
     },
   },
-  build: { outDir: "dist", emptyOutDir: true },
+  build: {
+    outDir: "dist",
+    emptyOutDir: true,
+    // Monaco is one 4 MB chunk (1 MB gzipped), loaded only when a lab's editor opens
+    chunkSizeWarningLimit: 4500,
+  },
 });
