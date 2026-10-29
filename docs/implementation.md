@@ -80,6 +80,20 @@ up by OpsForge), after the move (step 6), then PostgreSQL (step 8). From M2 on, 
 - **Done when:** every Phase 10 lab is passed end to end in the new UI on the live lab; Playwright journeys green
   on the fake lab; Lighthouse ≥ 90/100 on catalogue and course page; nothing of the Phase 10 server remains.
 
+### Environments (after OpsForge's Phase 12 steps 1-4, its contract minor)
+OpsForge stops running one fixed lab: each lab brings its own **environment document** (OpsForge's
+`environment.schema.json`: sites, links, VPN, nodes and their roles), OpsForge reshapes its one environment to it, lab
+steps change it mid-lab (step `environment`), and a lab left halfway is paused (its machines snapshotted and kept
+stopped) and resumed later. Plan and decisions: OpsForge's `docs/PLAN.md` Phase 12.
+- Packs: `labs/<id>.yml` names an environment (a document in the pack, or `extends: <lab>` + a patch, so a course's
+  topology grows chapter by chapter) instead of `needs`/`layout`; the compiler resolves `extends`, sends whole
+  documents and has OpsForge check them with the steps; an environment change changes the lab's content hash.
+- labsession: the sandbox request carries the document; attempts get `paused` (Pause keeps the sandbox, Resume brings
+  it back; abandon still deletes it); one running lab at a time as today, paused ones listed on the profile.
+- Player: Pause and Resume in the lab view; "Setting up" names the reshape (it can take longer than a namespace).
+- **Done when:** the six labs run on their own documents through Academy, one lab paused while another runs and
+  then resumed with its state intact, `make check` and e2e green (the fake OpsForge pauses and resumes in memory).
+
 ### M3: Editor and challenges
 - `editor` feature (S5): Monaco + monaco-yaml, explorer, tabs, autosave, external-change handling, Validate,
   Apply, Diff with cluster; `schemas` module serving cluster schemas.
