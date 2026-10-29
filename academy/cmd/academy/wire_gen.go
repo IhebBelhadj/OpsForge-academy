@@ -45,10 +45,18 @@ func initApp(ctx context.Context, cfg config.Config, build platform.Build) (*App
 	rewardsService := provideRewards(store, catalogService, historyService, systemClock, logger, labsessionService, quizService, progressService, identityService)
 	mainImporter := provideRewardingImporter(contentimportService, rewardsService, logger)
 	labstateService := provideLabState(client, historyService, systemClock)
-	handler := provideHandler(build, v, shells, identityService, mainImporter, catalogService, historyService, hub, progressService, quizService, labsessionService, operationsService, workspaceService, rewardsService, labstateService, logger)
+	tutorService, cleanup4, err := provideTutor(catalogService, labsessionService, labstateService, service, hub, systemClock, logger)
+	if err != nil {
+		cleanup3()
+		cleanup2()
+		cleanup()
+		return nil, nil, err
+	}
+	handler := provideHandler(build, v, shells, identityService, mainImporter, catalogService, historyService, hub, progressService, quizService, labsessionService, operationsService, workspaceService, rewardsService, labstateService, tutorService, logger)
 	legacyService := provideLegacy(store)
-	app := newApp(cfg, logger, handler, service, mainImporter, hub, operationsService, labsessionService, identityService, legacyService, progressService, rewardsService)
+	app := newApp(cfg, logger, handler, service, mainImporter, hub, operationsService, labsessionService, identityService, legacyService, progressService, rewardsService, tutorService)
 	return app, func() {
+		cleanup4()
 		cleanup3()
 		cleanup2()
 		cleanup()

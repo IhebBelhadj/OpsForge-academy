@@ -144,6 +144,12 @@ func TestLabStartRefusals(t *testing.T) {
 		t.Fatalf("%d %s", rec.Code, rec.Body)
 	}
 	w.opsforge.Refuse = nil
+	w.opsforge.Offline.Store(true) // labs need OpsForge: refused before an attempt exists
+	rec = post(t, b, "/api/v1/labs/meet-the-cluster/attempts", startOp, "")
+	if rec.Code != 503 || decode[httpapi.Problem](t, rec.Body.Bytes()).Type != "/problems/labs-offline" {
+		t.Fatalf("offline: %d %s", rec.Code, rec.Body)
+	}
+	w.opsforge.Offline.Store(false)
 	startLab(t, w, b, "meet-the-cluster")
 	rec = post(t, b, "/api/v1/labs/quiz-lab/attempts", startOp, "")
 	if rec.Code != 409 || decode[httpapi.Problem](t, rec.Body.Bytes()).Type != "/problems/another-lab-running" {

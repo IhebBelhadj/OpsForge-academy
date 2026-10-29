@@ -21,7 +21,8 @@ const Version = 1
 
 // Compile compiles packs into the bundle (api/bundle.schema.json), written as pyJSON. Invalid packs are left out
 // and their problems listed in `errors`; a course may use labs of the other packs compiled with it (not of an
-// invalid one). Scenario steps are checked by steps in one call; an error is only a failed call.
+// invalid one). Scenario steps are checked by steps in one call; an error is only a failed call. A nil steps
+// leaves them unchecked (the toolchain is out of reach; OpsForge still refuses a bad step when it runs).
 func Compile(ctx context.Context, sources []Source, steps StepChecker, compiledAt time.Time) ([]byte, error) {
 	packs := make([]*loaded, len(sources))
 	for i, src := range sources {
@@ -102,7 +103,7 @@ func Compile(ctx context.Context, sources []Source, steps StepChecker, compiledA
 		}
 	}
 	stepErrs := map[int][]string{}
-	if len(sets) > 0 {
+	if len(sets) > 0 && steps != nil {
 		errs, err := steps.CheckSteps(ctx, sets)
 		if err != nil {
 			return nil, fmt.Errorf("%w: %w", ErrSteps, err)

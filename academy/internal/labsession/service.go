@@ -159,6 +159,8 @@ func refusal(err error) error {
 		return fmt.Errorf("%w: %w", ErrBusy, err)
 	case errors.Is(err, lab.ErrUnmet):
 		return fmt.Errorf("%w: %w", ErrUnavailable, err)
+	case errors.Is(err, lab.ErrOffline):
+		return fmt.Errorf("%w: %w", ErrOffline, err)
 	}
 	return fmt.Errorf("%w: %w", ErrToolchain, err)
 }

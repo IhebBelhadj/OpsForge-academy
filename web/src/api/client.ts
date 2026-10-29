@@ -26,6 +26,11 @@ export type LabOutcome = Schemas["LabOutcome"];
 export type Operation = Schemas["Operation"];
 export type LabState = Schemas["LabState"];
 export type WorkspaceFile = Schemas["WorkspaceFile"];
+export type TutorAgent = Schemas["TutorAgent"];
+export type TutorConversation = Schemas["TutorConversation"];
+export type TutorMessage = Schemas["TutorMessage"];
+export type TutorToolCall = Schemas["TutorToolCall"];
+export type TutorEvent = Schemas["TutorEvent"];
 
 /** A problem document the API answered, as an Error (queries reject with it). */
 export class ProblemError extends Error {
@@ -91,13 +96,31 @@ export const keys = {
   currentAttempt: ["attempts", "current"] as const,
   labState: ["lab", "state"] as const,
   workspace: (workspace: string) => ["workspaces", workspace] as const,
+  tutorAgents: ["tutor", "agents"] as const,
+  tutorConversations: ["tutor", "conversations"] as const,
+  tutorConversation: (id: string) => ["tutor", "conversations", id] as const,
 };
 
 function fail(error: unknown): never {
   throw error instanceof Error ? error : new ProblemError(error as Problem);
 }
 
+/** Why labs are offline (OpsForge's failed readiness check), or undefined while OpsForge answers. */
+export function labsOffline(readiness: Readiness | undefined): string | undefined {
+  const opsforge = readiness?.checks.find((c) => c.name === "opsforge" && !c.ok);
+  return opsforge ? (opsforge.detail ?? "OpsForge does not answer") : undefined;
+}
+
 export const queries = {
+  /** readyz, as a result either way: a 503 still carries the checks. Throws only when the platform does not answer. */
+  readiness: () => ({
+    queryKey: keys.readiness,
+    queryFn: async (): Promise<Readiness> => {
+      const { data, error } = await api.GET("/readyz");
+      return data ?? error;
+    },
+    refetchInterval: 15_000,
+  }),
   courses: () => ({
     queryKey: keys.courses,
     queryFn: async () => {
@@ -160,6 +183,29 @@ export const queries = {
     queryKey: keys.labState,
     queryFn: async () => {
       const { data, error } = await api.GET("/api/v1/lab/state");
+      return data ?? fail(error);
+    },
+  }),
+  tutorAgents: () => ({
+    queryKey: keys.tutorAgents,
+    queryFn: async () => {
+      const { data, error } = await api.GET("/api/v1/tutor/agents");
+      return (data ?? fail(error)).agents;
+    },
+  }),
+  tutorConversations: () => ({
+    queryKey: keys.tutorConversations,
+    queryFn: async () => {
+      const { data, error } = await api.GET("/api/v1/tutor/conversations");
+      return (data ?? fail(error)).conversations;
+    },
+  }),
+  tutorConversation: (id: string) => ({
+    queryKey: keys.tutorConversation(id),
+    queryFn: async () => {
+      const { data, error } = await api.GET("/api/v1/tutor/conversations/{conversation}", {
+        params: { path: { conversation: id } },
+      });
       return data ?? fail(error);
     },
   }),
@@ -256,6 +302,31 @@ export const actions = {
   openTerminal: async (size: { workspace: string; cols: number; rows: number }) => {
     const { data, error } = await api.POST("/api/v1/terminals", { body: size });
     return data?.session ?? fail(error);
+  },
+  /** Opens a tutor conversation about an attempt; its agent starts in the background (`tutor` status events). */
+  startTutor: async ({ agent, attempt }: { agent: string; attempt: number }) => {
+    const { data, error } = await api.POST("/api/v1/tutor/conversations", { body: { agent, attempt } });
+    return data ?? fail(error);
+  },
+  /** Asks the tutor (202); the answer streams as `tutor` events. */
+  askTutor: async ({ conversation, text }: { conversation: string; text: string }) => {
+    const { data, error } = await api.POST("/api/v1/tutor/conversations/{conversation}/messages", {
+      params: { path: { conversation } },
+      body: { text },
+    });
+    return data ?? fail(error);
+  },
+  cancelTutor: async (conversation: string) => {
+    const { error } = await api.POST("/api/v1/tutor/conversations/{conversation}/cancel", {
+      params: { path: { conversation } },
+    });
+    if (error) fail(error);
+  },
+  closeTutor: async (conversation: string) => {
+    const { error } = await api.DELETE("/api/v1/tutor/conversations/{conversation}", {
+      params: { path: { conversation } },
+    });
+    if (error) fail(error);
   },
 };
 

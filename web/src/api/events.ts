@@ -1,16 +1,18 @@
 import { actions, ensureSession, type Operation } from "./client";
 
 /** The page's one live stream, GET /api/v1/events (server-sent events): `operation` events carry a long operation's
- * new status, `history` events the learner's history as it is written. It opens with the first listener and closes
+ * new status, `history` events the learner's history as it is written, `tutor` events a tutor conversation's
+ * status and its answer as it streams. It opens with the first listener and closes
  * with the last; the browser reconnects by itself (Last-Event-ID). */
 type Listener = (data: unknown) => void;
+const streamEvents = ["operation", "history", "tutor"] as const;
 const listeners = new Map<string, Set<Listener>>();
 let source: EventSource | undefined;
 
 function open() {
   if (source || typeof EventSource === "undefined" || [...listeners.values()].every((s) => s.size === 0)) return;
   source = new EventSource(`${location.origin}/api/v1/events`);
-  for (const name of ["operation", "history"])
+  for (const name of streamEvents)
     source.addEventListener(name, (e: MessageEvent<string>) => {
       let data: unknown;
       try {
@@ -22,7 +24,7 @@ function open() {
     });
 }
 
-export function subscribe(event: "operation" | "history", listener: Listener): () => void {
+export function subscribe(event: (typeof streamEvents)[number], listener: Listener): () => void {
   let set = listeners.get(event);
   if (!set) listeners.set(event, (set = new Set()));
   set.add(listener);

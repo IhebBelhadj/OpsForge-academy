@@ -2,6 +2,7 @@ package contentimport
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
@@ -29,9 +30,19 @@ func NewService(compiler Compiler, store Store, clock platform.Clock) *Service {
 // Import compiles the packs and brings the catalogue to them. A bundle with errors (*BundleErrors) or a failed
 // compile writes nothing.
 func (s *Service) Import(ctx context.Context) (Report, error) {
+	return s.importFrom(ctx, s.compiler.Compile)
+}
+
+// ImportUnchecked imports like Import without the toolchain's step check: the courses are served while OpsForge is
+// out of reach, and a later Import checks the same packs (same packs = no write).
+func (s *Service) ImportUnchecked(ctx context.Context) (Report, error) {
+	return s.importFrom(ctx, s.compiler.CompileUnchecked)
+}
+
+func (s *Service) importFrom(ctx context.Context, compile func(context.Context) (json.RawMessage, error)) (Report, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	bundle, err := s.compiler.Compile(ctx)
+	bundle, err := compile(ctx)
 	if err != nil {
 		return Report{}, fmt.Errorf("%w: %w", ErrCompile, err)
 	}

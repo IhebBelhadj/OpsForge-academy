@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import { renderRoute } from "@/test/render";
-import { labAttempt, startQuizAttempt } from "@/test/server";
+import { fixtures, http, HttpResponse, labAttempt, server, startQuizAttempt, tutorConversation } from "@/test/server";
 
 vi.mock("@/features/lecture/highlight", () => ({ highlight: () => Promise.resolve(null) }));
 
@@ -137,6 +137,14 @@ describe("the course player", () => {
     expect(screen.getByText("7 min")).toBeInTheDocument();
   });
 
+  it("serves the lab's text while OpsForge is out of reach, but cannot start it", async () => {
+    server.use(http.get("*/readyz", () => HttpResponse.json(fixtures.labsOffline)));
+    renderRoute("/learn/k8s-intro/meet-the-cluster");
+    expect(await screen.findByRole("heading", { name: /List the nodes/ })).toBeInTheDocument();
+    expect(await screen.findByText(/Labs are offline/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Start lab" })).toBeDisabled();
+  });
+
   it("types a step's command into the terminal with Run", async () => {
     const user = userEvent.setup();
     labAttempt(); // running already: the page picks it up
@@ -170,6 +178,43 @@ describe("the course player", () => {
     await user.click(screen.getByRole("button", { name: /Abandon/ }));
     await user.click(await screen.findByRole("button", { name: "Abandon lab" }));
     expect(await screen.findByRole("button", { name: "Start lab" })).toBeInTheDocument();
+  });
+
+  it("asks the tutor why a check failed, and talks with it", async () => {
+    const user = userEvent.setup();
+    labAttempt();
+    renderRoute("/learn/k8s-intro/meet-the-cluster");
+    await user.click(await screen.findByRole("button", { name: "Check" }));
+    await user.click(await screen.findByRole("button", { name: /Ask the tutor why/ }));
+
+    // No tutor yet: pick an agent; the question waits
+    expect(await screen.findByRole("heading", { name: "Ask a tutor about this lab" })).toBeInTheDocument();
+    expect(screen.getByText(/My check of the step "List the nodes" failed/)).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: /Gemini CLI/ })).toBeDisabled();
+    expect(screen.getByRole("radio", { name: /Claude Code/ })).toBeChecked();
+    await user.click(screen.getByRole("button", { name: /Start the tutor/ }));
+
+    // Once it is ready the question goes by itself, with what the check measured
+    expect(await screen.findByText(/You asked: My check of the step "List the nodes" failed/)).toBeInTheDocument();
+    const asked = tutorConversation()?.messages[0]?.text ?? "";
+    expect(asked).toContain("- nodes.value: wanted == 3, the lab showed nothing");
+    expect(asked).toContain("Don't give me the answer yet.");
+    const looked = screen.getByRole("list", { name: "What the tutor looked at" });
+    expect(within(looked).getByText("Read your steps")).toBeInTheDocument();
+    expect(within(looked).getByText("Refused: rm -rf ~")).toBeInTheDocument();
+
+    // A follow-up: Enter sends
+    const box = screen.getByLabelText("Message the tutor");
+    act(() => {
+      box.focus();
+    });
+    await user.keyboard("and now?{Enter}");
+    expect(await screen.findByText("You asked: and now?")).toBeInTheDocument();
+    expect(box).toHaveValue("");
+
+    await user.click(screen.getByRole("button", { name: /End/ }));
+    expect(await screen.findByRole("heading", { name: "Ask a tutor about this lab" })).toBeInTheDocument();
+    expect(tutorConversation()).toBeUndefined();
   });
 
   it("draws the lab map from the lab's state", async () => {

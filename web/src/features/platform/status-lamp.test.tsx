@@ -20,13 +20,21 @@ describe("StatusLamp", () => {
   });
 
   it("names the failed check and its reason on a 503", async () => {
-    server.use(http.get("*/readyz", () => HttpResponse.json(fixtures.toolchainDown, { status: 503 })));
+    server.use(http.get("*/readyz", () => HttpResponse.json(fixtures.databaseDown, { status: 503 })));
     renderWithQuery(<StatusLamp />);
-    expect(await screen.findByText("toolchain unavailable")).toBeInTheDocument();
+    expect(await screen.findByText("database unavailable")).toBeInTheDocument();
     expect(screen.getByRole("status")).toHaveAttribute("data-lamp", "red");
+    expect(screen.getByRole("status")).toHaveAttribute("title", "database: connection refused");
+  });
+
+  it("shows amber when only OpsForge is out of reach: the courses work, labs do not", async () => {
+    server.use(http.get("*/readyz", () => HttpResponse.json(fixtures.labsOffline)));
+    renderWithQuery(<StatusLamp />);
+    expect(await screen.findByText("Labs offline")).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveAttribute("data-lamp", "amber");
     expect(screen.getByRole("status")).toHaveAttribute(
       "title",
-      "toolchain: toolchain speaks contract 2, academy speaks 1",
+      "Labs need OpsForge. opsforge: opsforge speaks contract 2, academy speaks 1",
     );
   });
 

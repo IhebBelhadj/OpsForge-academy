@@ -12,12 +12,15 @@ import (
 	"github.com/IhebBelhadj/opsforge-academy/academy/internal/contentimport"
 )
 
+// compiler compiles bundle; err is the toolchain's failure, which an unchecked compile does not meet.
 type compiler struct {
 	bundle json.RawMessage
 	err    error
 }
 
 func (c *compiler) Compile(context.Context) (json.RawMessage, error) { return c.bundle, c.err }
+
+func (c *compiler) CompileUnchecked(context.Context) (json.RawMessage, error) { return c.bundle, nil }
 
 // memStore is the catalogue in memory; applied counts the writes.
 type memStore struct {
@@ -131,5 +134,23 @@ func TestAFailedCompileWritesNothing(t *testing.T) {
 	}
 	if store.applied != 0 {
 		t.Fatalf("%d writes", store.applied)
+	}
+}
+
+func TestAnUncheckedImportServesThePacksAndTheCheckedOneLaterWritesNothing(t *testing.T) {
+	store := &memStore{at: map[string]time.Time{}}
+	comp := &compiler{bundle: golden(t), err: errors.New("opsforge out of reach")}
+	svc := contentimport.NewService(comp, store, &clock{now: time.Now()})
+	if _, err := svc.Import(context.Background()); err == nil {
+		t.Fatal("the checked import passed without the toolchain")
+	}
+	report, err := svc.ImportUnchecked(context.Background())
+	if err != nil || !report.Changed || report.Added[catalog.KindLab] != 1 {
+		t.Fatalf("unchecked import: %+v, %v", report, err)
+	}
+	comp.err = nil
+	report, err = svc.Import(context.Background())
+	if err != nil || report.Changed || store.applied != 1 {
+		t.Fatalf("checked import after: %+v, %v (applied %d)", report, err, store.applied)
 	}
 }

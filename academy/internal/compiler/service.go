@@ -29,6 +29,17 @@ func (s *Service) Compile(ctx context.Context) (json.RawMessage, error) {
 	return Compile(ctx, sources.List, s.steps, s.clock.Now())
 }
 
+// CompileUnchecked compiles like Compile without checking the scenario steps: Academy serves its courses while
+// OpsForge is out of reach.
+func (s *Service) CompileUnchecked(ctx context.Context) (json.RawMessage, error) {
+	sources, err := Packs(s.dir)
+	if err != nil {
+		return nil, err
+	}
+	defer sources.Close()
+	return Compile(ctx, sources.List, nil, s.clock.Now())
+}
+
 // CompilePaths compiles the pack folders at paths (academy compile <pack>...).
 func (s *Service) CompilePaths(ctx context.Context, paths []string) (json.RawMessage, error) {
 	sources, err := Folders(s.dir, paths)

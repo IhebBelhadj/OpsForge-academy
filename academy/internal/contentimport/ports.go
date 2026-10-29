@@ -11,6 +11,8 @@ import (
 // Compiler compiles the content folder's packs into a bundle (bundle.schema.json; internal/compiler).
 type Compiler interface {
 	Compile(ctx context.Context) (json.RawMessage, error)
+	// CompileUnchecked compiles without the toolchain's step check.
+	CompileUnchecked(ctx context.Context) (json.RawMessage, error)
 }
 
 // Store is the catalogue's side of an import.

@@ -28,7 +28,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** The database and the lab toolchain answer */
+        /**
+         * The database answers (and whether the lab toolchain does)
+         * @description Academy serves its courses without OpsForge: only the required checks (the database) decide readiness. The opsforge check is reported too, not required: while it fails, lab work (attempts, checks, terminals, the lab map) is refused.
+         */
         get: operations["getReadyz"];
         put?: never;
         post?: never;
@@ -636,6 +639,117 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/tutor/agents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The coding agents the tutor can use
+         * @description The agents Academy knows how to start (ACP agents: Claude Code and Codex through Zed's adapters, Gemini CLI), each with whether it is installed on this machine. The learner's own sign-in to each is used.
+         */
+        get: operations["listTutorAgents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tutor/conversations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The learner's tutor conversation
+         * @description At most one, for a page that reloads: open, or ended (failed, closed after 30 minutes idle) until it is closed or another one is started.
+         */
+        get: operations["listTutorConversations"];
+        put?: never;
+        /**
+         * Open a tutor conversation about a lab attempt
+         * @description Starts the agent on this machine in the background (status `starting`, then a `tutor` status event: `ready`, or `failed` with the error). The agent sees the attempt only through Academy's read-only MCP tools (served at /mcp with the conversation's token: lab_attempt, lab_state, terminal_output); every other tool call it asks permission for is refused. The learner's previous conversation is closed.
+         */
+        post: operations["startTutor"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tutor/conversations/{conversation}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversation: string;
+            };
+            cookie?: never;
+        };
+        /** A tutor conversation */
+        get: operations["getTutorConversation"];
+        put?: never;
+        post?: never;
+        /**
+         * Close a tutor conversation
+         * @description Its agent's process ends, and the conversation is forgotten.
+         */
+        delete: operations["closeTutor"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tutor/conversations/{conversation}/messages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversation: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ask the tutor
+         * @description The learner's next message (202); the answer streams as `tutor` events (text, tool, then done) on /api/v1/events. Accepted only while the conversation is ready.
+         */
+        post: operations["sendTutorMessage"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tutor/conversations/{conversation}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversation: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Stop the tutor's answer
+         * @description The answer ends with a done event whose stop is `cancelled`; nothing happens when it is not answering.
+         */
+        post: operations["cancelTutor"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/events": {
         parameters: {
             query?: never;
@@ -645,7 +759,7 @@ export interface paths {
         };
         /**
          * Live events for the signed-in user
-         * @description A server-sent event stream (one per page): `history` events are the learner's history as it is written (lecture.completed, quiz.submitted, lab.started, step.checked, hint.shown, lab.passed, course.completed, ...; each carries its id, so the browser's automatic reconnect sends Last-Event-ID and gets what it missed); `operation` events are a long operation's new status (POST answers 202 with the operation, the result arrives here; GET /api/v1/operations/{operation} after a reconnect). A comment line every 25 s keeps the connection open. Served by a hand-written handler (internal/httpapi/events.go): excluded from oapi-codegen, the contract test checks each event's data against the schema named in x-events.
+         * @description A server-sent event stream (one per page): `history` events are the learner's history as it is written (lecture.completed, quiz.submitted, lab.started, step.checked, hint.shown, lab.passed, course.completed, ...; each carries its id, so the browser's automatic reconnect sends Last-Event-ID and gets what it missed); `operation` events are a long operation's new status (POST answers 202 with the operation, the result arrives here; GET /api/v1/operations/{operation} after a reconnect). A comment line every 25 s keeps the connection open. `tutor` events are a tutor conversation's status and its answer as it streams (not kept: GET /api/v1/tutor/conversations/{conversation} after a reconnect). Served by a hand-written handler (internal/httpapi/events.go): excluded from oapi-codegen, the contract test checks each event's data against the schema named in x-events.
          */
         get: operations["streamEvents"];
         put?: never;
@@ -682,9 +796,11 @@ export interface components {
             checks: components["schemas"]["Check"][];
         };
         Check: {
-            /** @description database or toolchain */
+            /** @description database or opsforge */
             name: string;
             ok: boolean;
+            /** @description false: a failure does not make Academy unavailable (opsforge: only lab work needs it) */
+            required: boolean;
             /** @description Why the check failed */
             detail?: string;
         };
@@ -1191,6 +1307,72 @@ export interface components {
             /** Format: date-time */
             at: string;
         };
+        TutorAgent: {
+            id: string;
+            name: string;
+            /** @description Installed on this machine */
+            available: boolean;
+            /** @description Why it is not available */
+            detail: string | null;
+        };
+        TutorAgentList: {
+            agents: components["schemas"]["TutorAgent"][];
+        };
+        TutorStart: {
+            agent: string;
+            /**
+             * Format: int64
+             * @description The lab attempt the conversation is about
+             */
+            attempt: number;
+        };
+        /**
+         * @description failed and closed are final (error says why)
+         * @enum {string}
+         */
+        TutorStatus: "starting" | "ready" | "answering" | "failed" | "closed";
+        TutorToolCall: {
+            id: string;
+            /** @description The agent's name for the call */
+            title: string;
+            /** @description ACP's pending, in_progress, completed, failed; denied when the tutor refused it */
+            status: string;
+        };
+        TutorMessage: {
+            /** @enum {string} */
+            role: "learner" | "tutor";
+            /** @description Markdown */
+            text: string;
+            tools: components["schemas"]["TutorToolCall"][];
+        };
+        TutorConversation: {
+            id: string;
+            agent: string;
+            /** Format: int64 */
+            attempt: number;
+            status: components["schemas"]["TutorStatus"];
+            error: string | null;
+            messages: components["schemas"]["TutorMessage"][];
+            /** Format: date-time */
+            created_at: string;
+        };
+        TutorConversationList: {
+            conversations: components["schemas"]["TutorConversation"][];
+        };
+        TutorMessageRequest: {
+            text: string;
+        };
+        /** @description status (the conversation's new status; error when it failed or closed by itself), text (a piece of the answer), tool (a tool call started or changed), done (the answer ended: stop is ACP's stop reason, or error when it broke off). */
+        TutorEvent: {
+            conversation: string;
+            /** @enum {string} */
+            type: "status" | "text" | "tool" | "done";
+            status: components["schemas"]["TutorStatus"] | null;
+            text: string | null;
+            tool: components["schemas"]["TutorToolCall"] | null;
+            stop: string | null;
+            error: string | null;
+        };
         /** @description RFC 9457 problem details. */
         Problem: {
             /** @description Stable URI reference, e.g. /problems/not-found */
@@ -1272,7 +1454,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Every check passed. */
+            /** @description Every required check passed. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -1281,7 +1463,7 @@ export interface operations {
                     "application/json": components["schemas"]["Readiness"];
                 };
             };
-            /** @description At least one check failed. */
+            /** @description At least one required check failed. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -1835,7 +2017,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description The lab toolchain failed (/problems/toolchain). */
+            /** @description OpsForge is out of reach (/problems/labs-offline: labs need it, the courses do not), or the lab toolchain failed (/problems/toolchain). */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -2438,6 +2620,241 @@ export interface operations {
             };
             /** @description Too many terminals are open. */
             429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    listTutorAgents: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The agents, in the order to offer them. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TutorAgentList"];
+                };
+            };
+            401: components["responses"]["NoSession"];
+        };
+    };
+    listTutorConversations: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The open conversations. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TutorConversationList"];
+                };
+            };
+            401: components["responses"]["NoSession"];
+        };
+    };
+    startTutor: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TutorStart"];
+            };
+        };
+        responses: {
+            /** @description The conversation, starting. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TutorConversation"];
+                };
+            };
+            401: components["responses"]["NoSession"];
+            403: components["responses"]["Forbidden"];
+            /** @description No such agent, or no such attempt of this learner (/problems/not-found). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The agent is not installed on this machine (/problems/agent-unavailable). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getTutorConversation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversation: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The conversation and its messages so far (an answer still streaming included). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TutorConversation"];
+                };
+            };
+            401: components["responses"]["NoSession"];
+            /** @description No such conversation of this learner (/problems/not-found). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    closeTutor: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversation: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Closed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["NoSession"];
+            403: components["responses"]["Forbidden"];
+            /** @description No such conversation of this learner (/problems/not-found). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    sendTutorMessage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversation: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TutorMessageRequest"];
+            };
+        };
+        responses: {
+            /** @description Accepted; the conversation with the message, answering. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TutorConversation"];
+                };
+            };
+            401: components["responses"]["NoSession"];
+            403: components["responses"]["Forbidden"];
+            /** @description No such conversation of this learner (/problems/not-found). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The tutor is starting or still answering (/problems/tutor-not-ready). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The message is empty or longer than 8 KiB (/problems/bad-message). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    cancelTutor: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversation: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Asked. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["NoSession"];
+            403: components["responses"]["Forbidden"];
+            /** @description No such conversation of this learner (/problems/not-found). */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

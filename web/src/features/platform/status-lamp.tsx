@@ -1,25 +1,21 @@
 import { useQuery } from "@tanstack/react-query";
 
-import { api, keys, type Readiness } from "@/api/client";
+import { queries } from "@/api/client";
 import { cn } from "@/lib/utils";
 
-type Lamp = "off" | "green" | "red";
+type Lamp = "off" | "green" | "amber" | "red";
 
 const lampClass: Record<Lamp, string> = {
   off: "bg-lamp-off",
   green: "bg-green",
+  amber: "bg-amber",
   red: "bg-red",
 };
 
-/** readyz, as a result either way: a 503 still carries the checks. Throws only when the platform does not answer. */
-async function readiness(): Promise<Readiness> {
-  const { data, error } = await api.GET("/readyz");
-  return data ?? error;
-}
-
-/** The platform's own lamp: green when the database and the lab toolchain answer, red with the reason otherwise. */
+/** The platform's own lamp: green when every check passed, red with the reason when a required one failed, amber
+ * when only OpsForge is out of reach (the courses work, labs do not). */
 export function StatusLamp() {
-  const query = useQuery({ queryKey: keys.readiness, queryFn: readiness, refetchInterval: 15_000 });
+  const query = useQuery(queries.readiness());
 
   let lamp: Lamp = "off";
   let label = "Checking the platform…";
@@ -29,9 +25,19 @@ export function StatusLamp() {
     label = "Platform unreachable";
   } else if (query.data) {
     const failed = query.data.checks.filter((c) => !c.ok);
-    lamp = failed.length ? "red" : "green";
-    label = failed.length ? `${failed.map((c) => c.name).join(", ")} unavailable` : "Platform ready";
-    detail = failed.map((c) => `${c.name}: ${c.detail ?? "failed"}`).join("; ") || undefined;
+    const reasons = failed.map((c) => `${c.name}: ${c.detail ?? "failed"}`).join("; ");
+    if (failed.some((c) => c.required)) {
+      lamp = "red";
+      label = `${failed.map((c) => c.name).join(", ")} unavailable`;
+      detail = reasons;
+    } else if (failed.length) {
+      lamp = "amber";
+      label = "Labs offline";
+      detail = `Labs need OpsForge. ${reasons}`;
+    } else {
+      lamp = "green";
+      label = "Platform ready";
+    }
   }
 
   return (

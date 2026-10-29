@@ -27,17 +27,21 @@ paths:
   /readyz:
     get:
       operationId: getReadyz
-      summary: The database and the lab toolchain answer
+      summary: The database answers (and whether the lab toolchain does)
+      description: >-
+        Academy serves its courses without OpsForge: only the required checks (the database) decide readiness. The
+        opsforge check is reported too, not required: while it fails, lab work (attempts, checks, terminals, the lab
+        map) is refused.
       tags: [operations]
       security: []
       responses:
         "200":
-          description: Every check passed.
+          description: Every required check passed.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Readiness" }
         "503":
-          description: At least one check failed.
+          description: At least one required check failed.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Readiness" }
@@ -419,7 +423,9 @@ paths:
             application/problem+json:
               schema: { $ref: "#/components/schemas/Problem" }
         "503":
-          description: The lab toolchain failed (/problems/toolchain).
+          description: >-
+            OpsForge is out of reach (/problems/labs-offline: labs need it, the courses do not), or the lab
+            toolchain failed (/problems/toolchain).
           content:
             application/problem+json:
               schema: { $ref: "#/components/schemas/Problem" }
@@ -806,6 +812,157 @@ paths:
           content:
             application/problem+json:
               schema: { $ref: "#/components/schemas/Problem" }
+  /api/v1/tutor/agents:
+    get:
+      operationId: listTutorAgents
+      summary: The coding agents the tutor can use
+      description: >-
+        The agents Academy knows how to start (ACP agents: Claude Code and Codex through Zed's adapters, Gemini
+        CLI), each with whether it is installed on this machine. The learner's own sign-in to each is used.
+      tags: [tutor]
+      responses:
+        "200":
+          description: The agents, in the order to offer them.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TutorAgentList" }
+        "401": { $ref: "#/components/responses/NoSession" }
+  /api/v1/tutor/conversations:
+    get:
+      operationId: listTutorConversations
+      summary: The learner's tutor conversation
+      description: >-
+        At most one, for a page that reloads: open, or ended (failed, closed after 30 minutes idle) until it is
+        closed or another one is started.
+      tags: [tutor]
+      responses:
+        "200":
+          description: The open conversations.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TutorConversationList" }
+        "401": { $ref: "#/components/responses/NoSession" }
+    post:
+      operationId: startTutor
+      summary: Open a tutor conversation about a lab attempt
+      description: >-
+        Starts the agent on this machine in the background (status `starting`, then a `tutor` status event:
+        `ready`, or `failed` with the error). The agent sees the attempt only through Academy's read-only MCP tools
+        (served at /mcp with the conversation's token: lab_attempt, lab_state, terminal_output); every other tool
+        call it asks permission for is refused. The learner's previous conversation is closed.
+      tags: [tutor]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TutorStart" }
+      responses:
+        "201":
+          description: The conversation, starting.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TutorConversation" }
+        "401": { $ref: "#/components/responses/NoSession" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404":
+          description: No such agent, or no such attempt of this learner (/problems/not-found).
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "409":
+          description: The agent is not installed on this machine (/problems/agent-unavailable).
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+  /api/v1/tutor/conversations/{conversation}:
+    parameters:
+      - { name: conversation, in: path, required: true, schema: { type: string } }
+    get:
+      operationId: getTutorConversation
+      summary: A tutor conversation
+      tags: [tutor]
+      responses:
+        "200":
+          description: The conversation and its messages so far (an answer still streaming included).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TutorConversation" }
+        "401": { $ref: "#/components/responses/NoSession" }
+        "404":
+          description: No such conversation of this learner (/problems/not-found).
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+    delete:
+      operationId: closeTutor
+      summary: Close a tutor conversation
+      description: Its agent's process ends, and the conversation is forgotten.
+      tags: [tutor]
+      responses:
+        "204": { description: Closed. }
+        "401": { $ref: "#/components/responses/NoSession" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404":
+          description: No such conversation of this learner (/problems/not-found).
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+  /api/v1/tutor/conversations/{conversation}/messages:
+    parameters:
+      - { name: conversation, in: path, required: true, schema: { type: string } }
+    post:
+      operationId: sendTutorMessage
+      summary: Ask the tutor
+      description: >-
+        The learner's next message (202); the answer streams as `tutor` events (text, tool, then done) on
+        /api/v1/events. Accepted only while the conversation is ready.
+      tags: [tutor]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TutorMessageRequest" }
+      responses:
+        "202":
+          description: Accepted; the conversation with the message, answering.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TutorConversation" }
+        "401": { $ref: "#/components/responses/NoSession" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404":
+          description: No such conversation of this learner (/problems/not-found).
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "409":
+          description: The tutor is starting or still answering (/problems/tutor-not-ready).
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "422":
+          description: The message is empty or longer than 8 KiB (/problems/bad-message).
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+  /api/v1/tutor/conversations/{conversation}/cancel:
+    parameters:
+      - { name: conversation, in: path, required: true, schema: { type: string } }
+    post:
+      operationId: cancelTutor
+      summary: Stop the tutor's answer
+      description: >-
+        The answer ends with a done event whose stop is `cancelled`; nothing happens when it is not answering.
+      tags: [tutor]
+      responses:
+        "204": { description: Asked. }
+        "401": { $ref: "#/components/responses/NoSession" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404":
+          description: No such conversation of this learner (/problems/not-found).
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
   /api/v1/events:
     get:
       operationId: streamEvents
@@ -816,7 +973,9 @@ paths:
         each carries its id, so the browser's automatic reconnect sends Last-Event-ID and gets what it missed);
         `operation` events are a long operation's new status (POST answers 202 with the operation, the result
         arrives here; GET /api/v1/operations/{operation} after a reconnect). A comment line every 25 s keeps the
-        connection open. Served by a hand-written handler (internal/httpapi/events.go): excluded from oapi-codegen,
+        connection open. `tutor` events are a tutor conversation's status and its answer as it streams (not kept:
+        GET /api/v1/tutor/conversations/{conversation} after a reconnect). Served by a hand-written handler
+        (internal/httpapi/events.go): excluded from oapi-codegen,
         the contract test checks each event's data against the schema named in x-events.
       tags: [events]
       parameters:
@@ -839,6 +998,7 @@ paths:
               x-events:
                 history: { $ref: "#/components/schemas/HistoryEvent" }
                 operation: { $ref: "#/components/schemas/Operation" }
+                tutor: { $ref: "#/components/schemas/TutorEvent" }
         "401": { $ref: "#/components/responses/NoSession" }
 security:
   - session: []
@@ -896,10 +1056,13 @@ components:
           items: { $ref: "#/components/schemas/Check" }
     Check:
       type: object
-      required: [name, ok]
+      required: [name, ok, required]
       properties:
-        name: { type: string, description: "database or toolchain" }
+        name: { type: string, description: "database or opsforge" }
         ok: { type: boolean }
+        required:
+          type: boolean
+          description: "false: a failure does not make Academy unavailable (opsforge: only lab work needs it)"
         detail: { type: string, description: Why the check failed }
     TerminalSize:
       type: object
@@ -1505,6 +1668,104 @@ components:
         subject: { type: string, description: "What it happened to: a lab id, <course>/<item>, a course id" }
         data: { type: object, description: The details; their keys depend on the kind }
         at: { type: string, format: date-time }
+    TutorAgent:
+      type: object
+      required: [id, name, available, detail]
+      additionalProperties: false
+      properties:
+        id: { type: string }
+        name: { type: string }
+        available: { type: boolean, description: Installed on this machine }
+        detail: { type: [string, "null"], description: Why it is not available, or what it needs }
+    TutorAgentList:
+      type: object
+      required: [agents]
+      additionalProperties: false
+      properties:
+        agents:
+          type: array
+          items: { $ref: "#/components/schemas/TutorAgent" }
+    TutorStart:
+      type: object
+      required: [agent, attempt]
+      additionalProperties: false
+      properties:
+        agent: { type: string }
+        attempt: { type: integer, format: int64, description: The lab attempt the conversation is about }
+    TutorStatus:
+      type: string
+      enum: [starting, ready, answering, failed, closed]
+      description: failed and closed are final (error says why)
+    TutorToolCall:
+      type: object
+      required: [id, title, status]
+      additionalProperties: false
+      properties:
+        id: { type: string }
+        title: { type: string, description: The agent's name for the call }
+        status:
+          type: string
+          description: ACP's pending, in_progress, completed, failed; denied when the tutor refused it
+    TutorMessage:
+      type: object
+      required: [role, text, tools]
+      additionalProperties: false
+      properties:
+        role: { type: string, enum: [learner, tutor] }
+        text: { type: string, description: Markdown }
+        tools:
+          type: array
+          items: { $ref: "#/components/schemas/TutorToolCall" }
+    TutorConversation:
+      type: object
+      required: [id, agent, attempt, status, error, messages, created_at]
+      additionalProperties: false
+      properties:
+        id: { type: string }
+        agent: { type: string }
+        attempt: { type: integer, format: int64 }
+        status: { $ref: "#/components/schemas/TutorStatus" }
+        error: { type: [string, "null"] }
+        messages:
+          type: array
+          items: { $ref: "#/components/schemas/TutorMessage" }
+        created_at: { type: string, format: date-time }
+    TutorConversationList:
+      type: object
+      required: [conversations]
+      additionalProperties: false
+      properties:
+        conversations:
+          type: array
+          items: { $ref: "#/components/schemas/TutorConversation" }
+    TutorMessageRequest:
+      type: object
+      required: [text]
+      additionalProperties: false
+      properties:
+        text: { type: string }
+    TutorEvent:
+      type: object
+      required: [conversation, type, status, text, tool, stop, error]
+      additionalProperties: false
+      description: >-
+        status (the conversation's new status; error when it failed or closed by itself), text (a piece of the
+        answer), tool (a tool call started or changed), done (the answer ended: stop is ACP's stop reason, or error
+        when it broke off).
+      properties:
+        conversation: { type: string }
+        type: { type: string, enum: [status, text, tool, done] }
+        status:
+          oneOf:
+            - { $ref: "#/components/schemas/TutorStatus" }
+            - { type: "null" }
+        text: { type: [string, "null"] }
+        tool:
+          oneOf:
+            - { $ref: "#/components/schemas/TutorToolCall" }
+            - { type: "null" }
+        stop: { type: [string, "null"] }
+        error: { type: [string, "null"] }
     Problem:
       type: object
       description: RFC 9457 problem details.

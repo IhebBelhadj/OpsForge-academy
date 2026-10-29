@@ -88,6 +88,12 @@ the history re-imported, the six labs passed again on it. **Next:** M2 (the cour
   `opsforge api serve` named by `ACADEMY_OPSFORGE_URL`/`ACADEMY_OPSFORGE_TOKEN_FILE`/`ACADEMY_OPSFORGE_CA_FILE` (any
   machine; `opsforgeapi`'s `TestReal*` skip without, the compile falls back to the fake), which is where real bash in
   the terminal is tested.
+- Academy serves alone; only lab work needs OpsForge. With OpsForge out of reach (no answer or no token: the
+  adapter wraps both as `lab.ErrOffline`): the start-up import goes in unchecked (`contentimport.ImportUnchecked`,
+  `compiler.CompileUnchecked`) and `App.recheck` retries the checked import every `recheckEvery` (1 min) until OpsForge
+  answers; readyz stays 200 (the `opsforge` check is `required: false`; the lamp turns amber "Labs offline"); starting
+  a lab is 503 `/problems/labs-offline` before any attempt exists, and the lab page disables Start. `POST
+  /admin/import` stays checked (503 offline). Tests: `opsforgefake.Fake.Offline` drops every connection.
 - Academy contract-first: edit `academy/api/openapi.yaml`, `make gen`, then tests, then handlers. Generated files
   (`*.gen.go`, `wire_gen.go`, `web/src/api/schema.d.ts`, `web/src/routeTree.gen.ts`) are committed; `gen-check` fails
   when stale. httpapi's TestMain fails when a documented response has no contract test. Module layering is enforced by
@@ -208,6 +214,18 @@ the history re-imported, the six labs passed again on it. **Next:** M2 (the cour
   (`internal/legacy`, a one-off data migration that writes several modules' tables in one transaction, like a goose
   migration) remembers imported Phase 10 ids in `legacy_rows`, so running it again imports only what is new; then
   `progress.Refresh` + `rewards.Evaluate` (its rows came without events).
+- Academy tutor (`internal/tutor`, 2026-10-27 spike): conversations with an ACP agent (`cmd/academy/tutor.go`
+  `tutorAgents`: Claude Code and Codex via Zed's adapters pinned for npx, Gemini CLI `--experimental-acp`), run by
+  `tutor/acp` (own process group, empty temp dir, no fs/terminal capabilities, `RequestPermission` allows only
+  `tutor.Permit`'s tool names). Academy's tools are MCP at `/mcp` (`httpapi/tutor.go`, stateless, bearer = the
+  conversation's token, outside `/api/` so no cookie; guard and hostGuard still apply); an agent without HTTP MCP gets
+  `academy mcp-proxy <url>` on stdio (token in `ACADEMY_TUTOR_TOKEN`). Tools show only what the page shows (no probes,
+  hints not opened, solutions); `terminal_output` reads `terminal.Service.Recent` (the replay ring). In memory, one
+  conversation per learner: starting another closes the first; ended ones (failed, idle) stay readable until closed or
+  replaced. The page re-reads the conversation on each SSE `tutor` event and polls every second while it is
+  starting/answering (no client-side merging). The generated role constant `Tutor` forced the port name
+  `httpapi.Tutors`, and `ready` in two enums made oapi-codegen prefix `ReadinessStatusReady`. Tests: `tutor/acp` re-runs
+  its test binary as a fake ACP agent; httpapi's scripted agent calls the real MCP endpoint.
 - Shell: bash, `set -euo pipefail`, tabs, must pass shellcheck. YAML must pass `yamllint` (`.yamllint`).
 - After a milestone: its acceptance met, a CHANGELOG.md entry with measurements, docs and this file updated.
 - Commit messages: `feat(<scope>): <message>`. Default branch: `master`.

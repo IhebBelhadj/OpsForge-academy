@@ -275,16 +275,16 @@ func (e QuizQuestionType) Valid() bool {
 
 // Defines values for ReadinessStatus.
 const (
-	Ready       ReadinessStatus = "ready"
-	Unavailable ReadinessStatus = "unavailable"
+	ReadinessStatusReady       ReadinessStatus = "ready"
+	ReadinessStatusUnavailable ReadinessStatus = "unavailable"
 )
 
 // Valid indicates whether the value is a known member of the ReadinessStatus enum.
 func (e ReadinessStatus) Valid() bool {
 	switch e {
-	case Ready:
+	case ReadinessStatusReady:
 		return true
-	case Unavailable:
+	case ReadinessStatusUnavailable:
 		return true
 	default:
 		return false
@@ -306,6 +306,75 @@ func (e StepCheckType) Valid() bool {
 	case StepCheckTypeProbe:
 		return true
 	case StepCheckTypeQuiz:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TutorEventType.
+const (
+	TutorEventTypeDone   TutorEventType = "done"
+	TutorEventTypeStatus TutorEventType = "status"
+	TutorEventTypeText   TutorEventType = "text"
+	TutorEventTypeTool   TutorEventType = "tool"
+)
+
+// Valid indicates whether the value is a known member of the TutorEventType enum.
+func (e TutorEventType) Valid() bool {
+	switch e {
+	case TutorEventTypeDone:
+		return true
+	case TutorEventTypeStatus:
+		return true
+	case TutorEventTypeText:
+		return true
+	case TutorEventTypeTool:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TutorMessageRole.
+const (
+	Learner TutorMessageRole = "learner"
+	Tutor   TutorMessageRole = "tutor"
+)
+
+// Valid indicates whether the value is a known member of the TutorMessageRole enum.
+func (e TutorMessageRole) Valid() bool {
+	switch e {
+	case Learner:
+		return true
+	case Tutor:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TutorStatus.
+const (
+	TutorStatusAnswering TutorStatus = "answering"
+	TutorStatusClosed    TutorStatus = "closed"
+	TutorStatusFailed    TutorStatus = "failed"
+	TutorStatusReady     TutorStatus = "ready"
+	TutorStatusStarting  TutorStatus = "starting"
+)
+
+// Valid indicates whether the value is a known member of the TutorStatus enum.
+func (e TutorStatus) Valid() bool {
+	switch e {
+	case TutorStatusAnswering:
+		return true
+	case TutorStatusClosed:
+		return true
+	case TutorStatusFailed:
+		return true
+	case TutorStatusReady:
+		return true
+	case TutorStatusStarting:
 		return true
 	default:
 		return false
@@ -362,9 +431,12 @@ type Check struct {
 	// Detail Why the check failed
 	Detail *string `json:"detail,omitempty"`
 
-	// Name database or toolchain
+	// Name database or opsforge
 	Name string `json:"name"`
 	Ok   bool   `json:"ok"`
+
+	// Required false: a failure does not make Academy unavailable (opsforge: only lab work needs it)
+	Required bool `json:"required"`
 }
 
 // Course defines model for Course.
@@ -1010,6 +1082,93 @@ type TerminalSize struct {
 	Workspace string `json:"workspace"`
 }
 
+// TutorAgent defines model for TutorAgent.
+type TutorAgent struct {
+	// Available Installed on this machine
+	Available bool `json:"available"`
+
+	// Detail Why it is not available
+	Detail *string `json:"detail"`
+	Id     string  `json:"id"`
+	Name   string  `json:"name"`
+}
+
+// TutorAgentList defines model for TutorAgentList.
+type TutorAgentList struct {
+	Agents []TutorAgent `json:"agents"`
+}
+
+// TutorConversation defines model for TutorConversation.
+type TutorConversation struct {
+	Agent     string         `json:"agent"`
+	Attempt   int64          `json:"attempt"`
+	CreatedAt time.Time      `json:"created_at"`
+	Error     *string        `json:"error"`
+	Id        string         `json:"id"`
+	Messages  []TutorMessage `json:"messages"`
+
+	// Status failed and closed are final (error says why)
+	Status TutorStatus `json:"status"`
+}
+
+// TutorConversationList defines model for TutorConversationList.
+type TutorConversationList struct {
+	Conversations []TutorConversation `json:"conversations"`
+}
+
+// TutorEvent status (the conversation's new status; error when it failed or closed by itself), text (a piece of the answer), tool (a tool call started or changed), done (the answer ended: stop is ACP's stop reason, or error when it broke off).
+type TutorEvent struct {
+	Conversation string         `json:"conversation"`
+	Error        *string        `json:"error"`
+	Status       *TutorStatus   `json:"status"`
+	Stop         *string        `json:"stop"`
+	Text         *string        `json:"text"`
+	Tool         *TutorToolCall `json:"tool"`
+	Type         TutorEventType `json:"type"`
+}
+
+// TutorEventType defines model for TutorEvent.Type.
+type TutorEventType string
+
+// TutorMessage defines model for TutorMessage.
+type TutorMessage struct {
+	Role TutorMessageRole `json:"role"`
+
+	// Text Markdown
+	Text  string          `json:"text"`
+	Tools []TutorToolCall `json:"tools"`
+}
+
+// TutorMessageRole defines model for TutorMessage.Role.
+type TutorMessageRole string
+
+// TutorMessageRequest defines model for TutorMessageRequest.
+type TutorMessageRequest struct {
+	Text string `json:"text"`
+}
+
+// TutorStart defines model for TutorStart.
+type TutorStart struct {
+	Agent string `json:"agent"`
+
+	// Attempt The lab attempt the conversation is about
+	Attempt int64 `json:"attempt"`
+}
+
+// TutorStatus failed and closed are final (error says why)
+type TutorStatus string
+
+// TutorToolCall defines model for TutorToolCall.
+type TutorToolCall struct {
+	Id string `json:"id"`
+
+	// Status ACP's pending, in_progress, completed, failed; denied when the tutor refused it
+	Status string `json:"status"`
+
+	// Title The agent's name for the call
+	Title string `json:"title"`
+}
+
 // User defines model for User.
 type User struct {
 	Id   int64  `json:"id"`
@@ -1096,6 +1255,12 @@ type SubmitQuizAttemptJSONRequestBody = QuizAnswers
 
 // OpenTerminalJSONRequestBody defines body for OpenTerminal for application/json ContentType.
 type OpenTerminalJSONRequestBody = TerminalSize
+
+// StartTutorJSONRequestBody defines body for StartTutor for application/json ContentType.
+type StartTutorJSONRequestBody = TutorStart
+
+// SendTutorMessageJSONRequestBody defines body for SendTutorMessage for application/json ContentType.
+type SendTutorMessageJSONRequestBody = TutorMessageRequest
 
 // WriteWorkspaceFileJSONRequestBody defines body for WriteWorkspaceFile for application/json ContentType.
 type WriteWorkspaceFileJSONRequestBody = WorkspaceFileWrite
@@ -1186,6 +1351,27 @@ type ServerInterface interface {
 	// OpenTerminal Start a shell for a browser terminal
 	// (POST /api/v1/terminals)
 	OpenTerminal(w http.ResponseWriter, r *http.Request)
+	// ListTutorAgents The coding agents the tutor can use
+	// (GET /api/v1/tutor/agents)
+	ListTutorAgents(w http.ResponseWriter, r *http.Request)
+	// ListTutorConversations The learner's tutor conversation
+	// (GET /api/v1/tutor/conversations)
+	ListTutorConversations(w http.ResponseWriter, r *http.Request)
+	// StartTutor Open a tutor conversation about a lab attempt
+	// (POST /api/v1/tutor/conversations)
+	StartTutor(w http.ResponseWriter, r *http.Request)
+	// CloseTutor Close a tutor conversation
+	// (DELETE /api/v1/tutor/conversations/{conversation})
+	CloseTutor(w http.ResponseWriter, r *http.Request, conversation string)
+	// GetTutorConversation A tutor conversation
+	// (GET /api/v1/tutor/conversations/{conversation})
+	GetTutorConversation(w http.ResponseWriter, r *http.Request, conversation string)
+	// CancelTutor Stop the tutor's answer
+	// (POST /api/v1/tutor/conversations/{conversation}/cancel)
+	CancelTutor(w http.ResponseWriter, r *http.Request, conversation string)
+	// SendTutorMessage Ask the tutor
+	// (POST /api/v1/tutor/conversations/{conversation}/messages)
+	SendTutorMessage(w http.ResponseWriter, r *http.Request, conversation string)
 	// DeleteWorkspaceFile Delete a file
 	// (DELETE /api/v1/workspaces/{workspace}/files)
 	DeleteWorkspaceFile(w http.ResponseWriter, r *http.Request, workspace string, params DeleteWorkspaceFileParams)
@@ -1204,7 +1390,7 @@ type ServerInterface interface {
 	// GetHealthz The process is up
 	// (GET /healthz)
 	GetHealthz(w http.ResponseWriter, r *http.Request)
-	// GetReadyz The database and the lab toolchain answer
+	// GetReadyz The database answers (and whether the lab toolchain does)
 	// (GET /readyz)
 	GetReadyz(w http.ResponseWriter, r *http.Request)
 }
@@ -1875,6 +2061,152 @@ func (siw *ServerInterfaceWrapper) OpenTerminal(w http.ResponseWriter, r *http.R
 	handler.ServeHTTP(w, r)
 }
 
+// ListTutorAgents operation middleware
+func (siw *ServerInterfaceWrapper) ListTutorAgents(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListTutorAgents(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListTutorConversations operation middleware
+func (siw *ServerInterfaceWrapper) ListTutorConversations(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListTutorConversations(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// StartTutor operation middleware
+func (siw *ServerInterfaceWrapper) StartTutor(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.StartTutor(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CloseTutor operation middleware
+func (siw *ServerInterfaceWrapper) CloseTutor(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "conversation" -------------
+	var conversation string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "conversation", r.PathValue("conversation"), &conversation, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "conversation", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CloseTutor(w, r, conversation)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetTutorConversation operation middleware
+func (siw *ServerInterfaceWrapper) GetTutorConversation(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "conversation" -------------
+	var conversation string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "conversation", r.PathValue("conversation"), &conversation, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "conversation", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetTutorConversation(w, r, conversation)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CancelTutor operation middleware
+func (siw *ServerInterfaceWrapper) CancelTutor(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "conversation" -------------
+	var conversation string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "conversation", r.PathValue("conversation"), &conversation, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "conversation", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CancelTutor(w, r, conversation)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SendTutorMessage operation middleware
+func (siw *ServerInterfaceWrapper) SendTutorMessage(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "conversation" -------------
+	var conversation string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "conversation", r.PathValue("conversation"), &conversation, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "conversation", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SendTutorMessage(w, r, conversation)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // DeleteWorkspaceFile operation middleware
 func (siw *ServerInterfaceWrapper) DeleteWorkspaceFile(w http.ResponseWriter, r *http.Request) {
 
@@ -2235,6 +2567,13 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/v1/workspaces/{workspace}/files", wrapper.WriteWorkspaceFile)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/workspaces/{workspace}/moves", wrapper.MoveWorkspaceFile)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/terminals", wrapper.OpenTerminal)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/tutor/agents", wrapper.ListTutorAgents)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/tutor/conversations", wrapper.ListTutorConversations)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/tutor/conversations", wrapper.StartTutor)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/v1/tutor/conversations/{conversation}", wrapper.CloseTutor)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/tutor/conversations/{conversation}", wrapper.GetTutorConversation)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/tutor/conversations/{conversation}/messages", wrapper.SendTutorMessage)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/tutor/conversations/{conversation}/cancel", wrapper.CancelTutor)
 
 	return m
 }
@@ -4007,6 +4346,435 @@ func (response OpenTerminal429ApplicationProblemPlusJSONResponse) VisitOpenTermi
 	return err
 }
 
+type ListTutorAgentsRequestObject struct {
+}
+
+type ListTutorAgentsResponseObject interface {
+	VisitListTutorAgentsResponse(w http.ResponseWriter) error
+}
+
+type ListTutorAgents200JSONResponse TutorAgentList
+
+func (response ListTutorAgents200JSONResponse) VisitListTutorAgentsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListTutorAgents401ApplicationProblemPlusJSONResponse struct {
+	NoSessionApplicationProblemPlusJSONResponse
+}
+
+func (response ListTutorAgents401ApplicationProblemPlusJSONResponse) VisitListTutorAgentsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListTutorConversationsRequestObject struct {
+}
+
+type ListTutorConversationsResponseObject interface {
+	VisitListTutorConversationsResponse(w http.ResponseWriter) error
+}
+
+type ListTutorConversations200JSONResponse TutorConversationList
+
+func (response ListTutorConversations200JSONResponse) VisitListTutorConversationsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListTutorConversations401ApplicationProblemPlusJSONResponse struct {
+	NoSessionApplicationProblemPlusJSONResponse
+}
+
+func (response ListTutorConversations401ApplicationProblemPlusJSONResponse) VisitListTutorConversationsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StartTutorRequestObject struct {
+	Body *StartTutorJSONRequestBody
+}
+
+type StartTutorResponseObject interface {
+	VisitStartTutorResponse(w http.ResponseWriter) error
+}
+
+type StartTutor201JSONResponse TutorConversation
+
+func (response StartTutor201JSONResponse) VisitStartTutorResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StartTutor401ApplicationProblemPlusJSONResponse struct {
+	NoSessionApplicationProblemPlusJSONResponse
+}
+
+func (response StartTutor401ApplicationProblemPlusJSONResponse) VisitStartTutorResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StartTutor403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response StartTutor403ApplicationProblemPlusJSONResponse) VisitStartTutorResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StartTutor404ApplicationProblemPlusJSONResponse Problem
+
+func (response StartTutor404ApplicationProblemPlusJSONResponse) VisitStartTutorResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StartTutor409ApplicationProblemPlusJSONResponse Problem
+
+func (response StartTutor409ApplicationProblemPlusJSONResponse) VisitStartTutorResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CloseTutorRequestObject struct {
+	Conversation string `json:"conversation"`
+}
+
+type CloseTutorResponseObject interface {
+	VisitCloseTutorResponse(w http.ResponseWriter) error
+}
+
+type CloseTutor204Response struct {
+}
+
+func (response CloseTutor204Response) VisitCloseTutorResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type CloseTutor401ApplicationProblemPlusJSONResponse struct {
+	NoSessionApplicationProblemPlusJSONResponse
+}
+
+func (response CloseTutor401ApplicationProblemPlusJSONResponse) VisitCloseTutorResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CloseTutor403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response CloseTutor403ApplicationProblemPlusJSONResponse) VisitCloseTutorResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CloseTutor404ApplicationProblemPlusJSONResponse Problem
+
+func (response CloseTutor404ApplicationProblemPlusJSONResponse) VisitCloseTutorResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetTutorConversationRequestObject struct {
+	Conversation string `json:"conversation"`
+}
+
+type GetTutorConversationResponseObject interface {
+	VisitGetTutorConversationResponse(w http.ResponseWriter) error
+}
+
+type GetTutorConversation200JSONResponse TutorConversation
+
+func (response GetTutorConversation200JSONResponse) VisitGetTutorConversationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetTutorConversation401ApplicationProblemPlusJSONResponse struct {
+	NoSessionApplicationProblemPlusJSONResponse
+}
+
+func (response GetTutorConversation401ApplicationProblemPlusJSONResponse) VisitGetTutorConversationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetTutorConversation404ApplicationProblemPlusJSONResponse Problem
+
+func (response GetTutorConversation404ApplicationProblemPlusJSONResponse) VisitGetTutorConversationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CancelTutorRequestObject struct {
+	Conversation string `json:"conversation"`
+}
+
+type CancelTutorResponseObject interface {
+	VisitCancelTutorResponse(w http.ResponseWriter) error
+}
+
+type CancelTutor204Response struct {
+}
+
+func (response CancelTutor204Response) VisitCancelTutorResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type CancelTutor401ApplicationProblemPlusJSONResponse struct {
+	NoSessionApplicationProblemPlusJSONResponse
+}
+
+func (response CancelTutor401ApplicationProblemPlusJSONResponse) VisitCancelTutorResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CancelTutor403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response CancelTutor403ApplicationProblemPlusJSONResponse) VisitCancelTutorResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CancelTutor404ApplicationProblemPlusJSONResponse Problem
+
+func (response CancelTutor404ApplicationProblemPlusJSONResponse) VisitCancelTutorResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SendTutorMessageRequestObject struct {
+	Conversation string `json:"conversation"`
+	Body         *SendTutorMessageJSONRequestBody
+}
+
+type SendTutorMessageResponseObject interface {
+	VisitSendTutorMessageResponse(w http.ResponseWriter) error
+}
+
+type SendTutorMessage202JSONResponse TutorConversation
+
+func (response SendTutorMessage202JSONResponse) VisitSendTutorMessageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(202)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SendTutorMessage401ApplicationProblemPlusJSONResponse struct {
+	NoSessionApplicationProblemPlusJSONResponse
+}
+
+func (response SendTutorMessage401ApplicationProblemPlusJSONResponse) VisitSendTutorMessageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SendTutorMessage403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response SendTutorMessage403ApplicationProblemPlusJSONResponse) VisitSendTutorMessageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SendTutorMessage404ApplicationProblemPlusJSONResponse Problem
+
+func (response SendTutorMessage404ApplicationProblemPlusJSONResponse) VisitSendTutorMessageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SendTutorMessage409ApplicationProblemPlusJSONResponse Problem
+
+func (response SendTutorMessage409ApplicationProblemPlusJSONResponse) VisitSendTutorMessageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SendTutorMessage422ApplicationProblemPlusJSONResponse Problem
+
+func (response SendTutorMessage422ApplicationProblemPlusJSONResponse) VisitSendTutorMessageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type DeleteWorkspaceFileRequestObject struct {
 	Workspace string `json:"workspace"`
 	Params    DeleteWorkspaceFileParams
@@ -4559,6 +5327,27 @@ type StrictServerInterface interface {
 	// OpenTerminal Start a shell for a browser terminal
 	// (POST /api/v1/terminals)
 	OpenTerminal(ctx context.Context, request OpenTerminalRequestObject) (OpenTerminalResponseObject, error)
+	// ListTutorAgents The coding agents the tutor can use
+	// (GET /api/v1/tutor/agents)
+	ListTutorAgents(ctx context.Context, request ListTutorAgentsRequestObject) (ListTutorAgentsResponseObject, error)
+	// ListTutorConversations The learner's tutor conversation
+	// (GET /api/v1/tutor/conversations)
+	ListTutorConversations(ctx context.Context, request ListTutorConversationsRequestObject) (ListTutorConversationsResponseObject, error)
+	// StartTutor Open a tutor conversation about a lab attempt
+	// (POST /api/v1/tutor/conversations)
+	StartTutor(ctx context.Context, request StartTutorRequestObject) (StartTutorResponseObject, error)
+	// CloseTutor Close a tutor conversation
+	// (DELETE /api/v1/tutor/conversations/{conversation})
+	CloseTutor(ctx context.Context, request CloseTutorRequestObject) (CloseTutorResponseObject, error)
+	// GetTutorConversation A tutor conversation
+	// (GET /api/v1/tutor/conversations/{conversation})
+	GetTutorConversation(ctx context.Context, request GetTutorConversationRequestObject) (GetTutorConversationResponseObject, error)
+	// CancelTutor Stop the tutor's answer
+	// (POST /api/v1/tutor/conversations/{conversation}/cancel)
+	CancelTutor(ctx context.Context, request CancelTutorRequestObject) (CancelTutorResponseObject, error)
+	// SendTutorMessage Ask the tutor
+	// (POST /api/v1/tutor/conversations/{conversation}/messages)
+	SendTutorMessage(ctx context.Context, request SendTutorMessageRequestObject) (SendTutorMessageResponseObject, error)
 	// DeleteWorkspaceFile Delete a file
 	// (DELETE /api/v1/workspaces/{workspace}/files)
 	DeleteWorkspaceFile(ctx context.Context, request DeleteWorkspaceFileRequestObject) (DeleteWorkspaceFileResponseObject, error)
@@ -4577,7 +5366,7 @@ type StrictServerInterface interface {
 	// GetHealthz The process is up
 	// (GET /healthz)
 	GetHealthz(ctx context.Context, request GetHealthzRequestObject) (GetHealthzResponseObject, error)
-	// GetReadyz The database and the lab toolchain answer
+	// GetReadyz The database answers (and whether the lab toolchain does)
 	// (GET /readyz)
 	GetReadyz(ctx context.Context, request GetReadyzRequestObject) (GetReadyzResponseObject, error)
 }
@@ -5350,6 +6139,196 @@ func (sh *strictHandler) OpenTerminal(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(OpenTerminalResponseObject); ok {
 		if err := validResponse.VisitOpenTerminalResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListTutorAgents operation middleware
+func (sh *strictHandler) ListTutorAgents(w http.ResponseWriter, r *http.Request) {
+	var request ListTutorAgentsRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListTutorAgents(ctx, request.(ListTutorAgentsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListTutorAgents")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListTutorAgentsResponseObject); ok {
+		if err := validResponse.VisitListTutorAgentsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListTutorConversations operation middleware
+func (sh *strictHandler) ListTutorConversations(w http.ResponseWriter, r *http.Request) {
+	var request ListTutorConversationsRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListTutorConversations(ctx, request.(ListTutorConversationsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListTutorConversations")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListTutorConversationsResponseObject); ok {
+		if err := validResponse.VisitListTutorConversationsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// StartTutor operation middleware
+func (sh *strictHandler) StartTutor(w http.ResponseWriter, r *http.Request) {
+	var request StartTutorRequestObject
+
+	var body StartTutorJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.StartTutor(ctx, request.(StartTutorRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "StartTutor")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(StartTutorResponseObject); ok {
+		if err := validResponse.VisitStartTutorResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CloseTutor operation middleware
+func (sh *strictHandler) CloseTutor(w http.ResponseWriter, r *http.Request, conversation string) {
+	var request CloseTutorRequestObject
+
+	request.Conversation = conversation
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CloseTutor(ctx, request.(CloseTutorRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CloseTutor")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CloseTutorResponseObject); ok {
+		if err := validResponse.VisitCloseTutorResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetTutorConversation operation middleware
+func (sh *strictHandler) GetTutorConversation(w http.ResponseWriter, r *http.Request, conversation string) {
+	var request GetTutorConversationRequestObject
+
+	request.Conversation = conversation
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetTutorConversation(ctx, request.(GetTutorConversationRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetTutorConversation")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetTutorConversationResponseObject); ok {
+		if err := validResponse.VisitGetTutorConversationResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CancelTutor operation middleware
+func (sh *strictHandler) CancelTutor(w http.ResponseWriter, r *http.Request, conversation string) {
+	var request CancelTutorRequestObject
+
+	request.Conversation = conversation
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CancelTutor(ctx, request.(CancelTutorRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CancelTutor")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CancelTutorResponseObject); ok {
+		if err := validResponse.VisitCancelTutorResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SendTutorMessage operation middleware
+func (sh *strictHandler) SendTutorMessage(w http.ResponseWriter, r *http.Request, conversation string) {
+	var request SendTutorMessageRequestObject
+
+	request.Conversation = conversation
+
+	var body SendTutorMessageJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SendTutorMessage(ctx, request.(SendTutorMessageRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SendTutorMessage")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SendTutorMessageResponseObject); ok {
+		if err := validResponse.VisitSendTutorMessageResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

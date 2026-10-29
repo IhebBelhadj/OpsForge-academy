@@ -1,9 +1,18 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { Check, ChevronDown, Lightbulb, Loader2, Play, RotateCcw, Square } from "lucide-react";
-import { type ReactNode, useEffect, useState } from "react";
+import { Bot, Check, ChevronDown, Lightbulb, Loader2, Play, RotateCcw, Square } from "lucide-react";
+import { type ReactNode, useCallback, useEffect, useState } from "react";
 
-import { actions, type Item, keys, type LabAttempt, type LabOutcome, type Operation, queries } from "@/api/client";
+import {
+  actions,
+  type Item,
+  keys,
+  type LabAttempt,
+  labsOffline,
+  type LabOutcome,
+  type Operation,
+  queries,
+} from "@/api/client";
 import { awaitOperation } from "@/api/events";
 import { Lamp, type LampColour } from "@/components/lamp";
 import { Button } from "@/components/ui/button";
@@ -22,6 +31,7 @@ import { WorkspaceEditor } from "@/features/editor";
 import { labChanged, LiveLabMap } from "@/features/labmap";
 import { Markdown } from "@/features/lecture";
 import { TerminalInput, TerminalPane, type TerminalStatus } from "@/features/terminal";
+import { failedCheckQuestion, TutorPanel, type TutorQuestion } from "@/features/tutor";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { count, duration } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -58,6 +68,7 @@ export function LabView({ item, number, next }: { item: Item; number: string; ne
   const mobile = useIsMobile();
   const current = useQuery(queries.currentAttempt());
   const labState = useQuery(queries.labState());
+  const offline = labsOffline(useQuery(queries.readiness()).data);
   const [mine, setMine] = useState<LabAttempt>();
   const [outcome, setOutcome] = useState<LabOutcome>();
   const [busy, setBusy] = useState<Busy>();
@@ -66,6 +77,10 @@ export function LabView({ item, number, next }: { item: Item; number: string; ne
   const [terminal, setTerminal] = useState<TerminalStatus>();
   const [type, setType] = useState<((text: string) => void) | null>(null);
   const [confirmAbandon, setConfirmAbandon] = useState(false);
+  const [question, setQuestion] = useState<TutorQuestion>();
+  const asked = useCallback(() => {
+    setQuestion(undefined);
+  }, []);
 
   // The attempt shown: the one this page started or last read, else the learner's running attempt at this lab
   const running = current.data;
@@ -189,6 +204,14 @@ export function LabView({ item, number, next }: { item: Item; number: string; ne
                   checking={busy === "check"}
                   busy={Boolean(busy)}
                   onHint={() => void hint(s)}
+                  onAskTutor={
+                    live && outcome?.step === s.id && outcome.passed === false
+                      ? () => {
+                          setQuestion({ id: Date.now(), text: failedCheckQuestion(s.title, outcome) });
+                          setTab("tutor");
+                        }
+                      : undefined
+                  }
                   onCheck={(answer) => {
                     if (!attempt) return;
                     void operate("check", () =>
@@ -215,6 +238,9 @@ export function LabView({ item, number, next }: { item: Item; number: string; ne
         <TabsList variant="line" className="h-10 rounded-none bg-transparent px-1">
           <TabsTrigger value="terminal">Terminal</TabsTrigger>
           <TabsTrigger value="editor">Editor</TabsTrigger>
+          <TabsTrigger value="tutor" className="gap-1.5">
+            <Bot aria-hidden className="size-4" /> Tutor
+          </TabsTrigger>
           <TabsTrigger value="map" className="gap-2">
             Lab map
             {changed ? (
@@ -247,6 +273,7 @@ export function LabView({ item, number, next }: { item: Item; number: string; ne
             shown={shown}
             busy={busy}
             other={other}
+            offline={offline}
             failed={attempt?.status === "failed" ? (attempt.error ?? "The setup failed.") : undefined}
             onStart={start}
             onAbandonOther={() => {
@@ -261,6 +288,15 @@ export function LabView({ item, number, next }: { item: Item; number: string; ne
           <WorkspaceEditor workspace={attempt.workspace} active={tab === "editor"} />
         ) : (
           <p className="p-5 text-sm text-ink-soft">The lab's files open here once it runs.</p>
+        )}
+      </TabsContent>
+      <TabsContent value="tutor" className="min-h-0 bg-surface">
+        {live ? (
+          <TutorPanel attempt={attempt} question={question} onAsked={asked} />
+        ) : (
+          <p className="p-5 text-sm text-ink-soft">
+            The tutor opens once the lab runs: it reads your steps and terminal.
+          </p>
         )}
       </TabsContent>
       <TabsContent value="map" className="min-h-0 overflow-auto bg-surface p-5">
@@ -372,6 +408,7 @@ function StartPanel({
   shown,
   busy,
   other,
+  offline,
   failed,
   onStart,
   onAbandonOther,
@@ -380,6 +417,8 @@ function StartPanel({
   shown: Shown;
   busy: Busy | undefined;
   other: LabAttempt | undefined;
+  /** Why OpsForge is out of reach: labs run on it, so none can start */
+  offline: string | undefined;
   failed: string | undefined;
   onStart: () => void;
   onAbandonOther: () => void;
@@ -442,10 +481,16 @@ function StartPanel({
                 The last setup failed: {failed}
               </p>
             ) : null}
+            {offline ? (
+              <p role="status" title={offline} className="mt-4 rounded-md border border-amber/60 p-3 text-sm">
+                Labs are offline: Academy cannot reach OpsForge, where labs run. The course's lectures and quizzes still
+                work; this lab can start once OpsForge is back.
+              </p>
+            ) : null}
             <Button
               size="lg"
               onClick={onStart}
-              disabled={Boolean(busy)}
+              disabled={Boolean(busy) || Boolean(offline)}
               className="mt-6 bg-term-fg text-term-bg hover:bg-term-fg/90"
             >
               <Play aria-hidden /> {failed ? "Try again" : "Start lab"}
@@ -469,6 +514,7 @@ function StepRow({
   busy,
   onHint,
   onCheck,
+  onAskTutor,
 }: {
   step: Step;
   index: number;
@@ -481,6 +527,7 @@ function StepRow({
   busy: boolean;
   onHint: () => void;
   onCheck: (answer?: number) => void;
+  onAskTutor: (() => void) | undefined;
 }) {
   const [choice, setChoice] = useState("");
   const quiz = step.check.type === "quiz";
@@ -550,6 +597,11 @@ function StepRow({
             ) : null}
 
             {outcome?.passed === false ? <CheckResult outcome={outcome} quiz={quiz} /> : null}
+            {onAskTutor && !quiz ? (
+              <Button variant="outline" size="sm" className="mt-3 bg-surface" onClick={onAskTutor}>
+                <Bot aria-hidden /> Ask the tutor why
+              </Button>
+            ) : null}
             {live ? null : <p className="mt-4 text-sm text-ink-soft">Start the lab to check this step.</p>}
 
             <Button

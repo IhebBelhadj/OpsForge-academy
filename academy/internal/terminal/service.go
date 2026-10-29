@@ -19,6 +19,7 @@ type Service struct {
 	spawn    Spawner
 	mu       sync.Mutex
 	sessions map[string]*session
+	opened   uint64
 	closed   bool
 }
 
@@ -29,6 +30,8 @@ func NewService(spawn Spawner) *Service {
 
 type session struct {
 	id     string
+	seq    uint64 // opening order: the newest of a workspace's sessions is its terminal
+	ws     string
 	svc    *Service
 	pty    Pty
 	mu     sync.Mutex
@@ -52,7 +55,8 @@ func (s *Service) Open(spec Spec) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	sess := &session{id: newID(), svc: s, pty: pty, ring: newRing(ReplayBytes)}
+	s.opened++
+	sess := &session{id: newID(), seq: s.opened, ws: spec.Workspace, svc: s, pty: pty, ring: newRing(ReplayBytes)}
 	s.sessions[sess.id] = sess
 	sess.mu.Lock()
 	sess.startLingerLocked()
@@ -88,6 +92,28 @@ func (s *Service) Attach(id string) (*Attachment, error) {
 	}
 	sess.att = a
 	return a, nil
+}
+
+// Recent is the recent output (what a reconnecting client is replayed) of the newest live session in workspace
+// ws; false when none is open there.
+func (s *Service) Recent(ws string) ([]byte, bool) {
+	s.mu.Lock()
+	var newest *session
+	for _, sess := range s.sessions {
+		if ws != "" && sess.ws == ws && (newest == nil || sess.seq > newest.seq) {
+			newest = sess
+		}
+	}
+	s.mu.Unlock()
+	if newest == nil {
+		return nil, false
+	}
+	newest.mu.Lock()
+	defer newest.mu.Unlock()
+	if newest.done {
+		return nil, false
+	}
+	return newest.ring.Bytes(), true
 }
 
 // Shutdown hangs up every shell; attached clients end with ReasonClosed. No session opens afterwards.

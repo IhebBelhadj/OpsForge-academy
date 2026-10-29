@@ -55,6 +55,8 @@ var (
 	ErrLabDown = errors.New("the lab is down")
 	// ErrUnavailable is a lab the running lab cannot host (another layout, a missing node): wraps *lab.UnmetError.
 	ErrUnavailable = errors.New("the running lab cannot host this lab")
+	// ErrOffline is starting a lab while OpsForge is out of reach (the courses work without it, labs do not).
+	ErrOffline = errors.New("labs are offline: OpsForge is out of reach")
 	// ErrToolchain is a toolchain call that failed before anything started.
 	ErrToolchain = errors.New("the lab toolchain failed")
 	// ErrNotRunning is acting on an attempt that is not running (still setting up, or finished).

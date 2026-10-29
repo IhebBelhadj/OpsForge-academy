@@ -21,6 +21,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/IhebBelhadj/opsforge-academy/academy/internal/lab"
 )
 
 // Contract is the major version of the contract this platform speaks.
@@ -160,7 +162,7 @@ func (c *Client) do(ctx context.Context, method, path string, body io.Reader, co
 	}
 	token, err := c.token()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %w", lab.ErrOffline, err)
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	if contentType != "" {
@@ -168,7 +170,7 @@ func (c *Client) do(ctx context.Context, method, path string, body io.Reader, co
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("opsforge %s %s: %w", method, path, err)
+		return nil, fmt.Errorf("%w: opsforge %s %s: %w", lab.ErrOffline, method, path, err)
 	}
 	for _, s := range want {
 		if resp.StatusCode == s {

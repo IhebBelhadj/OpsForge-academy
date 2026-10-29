@@ -6,10 +6,12 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/http/cookiejar"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -104,7 +106,8 @@ func TestBadFlagsExitWithUsageError(t *testing.T) {
 	}
 }
 
-// Without OpsForge's token Academy still starts (migrate-legacy needs no OpsForge), and readyz says what is missing.
+// Without OpsForge's token Academy still starts and is ready (only lab work needs OpsForge), and readyz says what
+// is missing.
 func TestAMissingTokenIsAReadinessProblem(t *testing.T) {
 	dir := t.TempDir()
 	cfg := testConfig(t, dir)
@@ -124,8 +127,99 @@ func TestAMissingTokenIsAReadinessProblem(t *testing.T) {
 	}
 	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusServiceUnavailable || !strings.Contains(string(body), "opsforge-token-file") {
+	if resp.StatusCode != http.StatusOK || !strings.Contains(string(body), "opsforge-token-file") {
 		t.Fatalf("%d %s", resp.StatusCode, body)
+	}
+}
+
+// Academy serves its courses while OpsForge is out of reach (steps unchecked), and checks the steps once it answers.
+func TestTheCoursesAreServedWithoutOpsForge(t *testing.T) {
+	recheckEvery = 20 * time.Millisecond
+	t.Cleanup(func() { recheckEvery = time.Minute })
+	var down atomic.Bool
+	var checked atomic.Int32
+	down.Store(true)
+	fake := opsforgefake.New("token")
+	opsforge := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if down.Load() { // out of reach: the connection drops
+			conn, _, _ := w.(http.Hijacker).Hijack()
+			_ = conn.Close()
+			return
+		}
+		if r.URL.Path == "/v1/steps/validate" {
+			checked.Add(1)
+		}
+		fake.ServeHTTP(w, r)
+	}))
+	t.Cleanup(opsforge.Close)
+	dir := t.TempDir()
+	cfg := testConfig(t, dir, "--opsforge-url", opsforge.URL)
+	cfg.Content = "../../testdata/packs"
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	app, cleanup, err := initApp(ctx, cfg, platform.Build{Version: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+	app.ready = make(chan string, 1)
+	go func() { _ = app.Run(ctx) }()
+	base := "http://" + <-app.ready
+
+	resp, err := http.Get(base + "/readyz")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ready struct {
+		Status string `json:"status"`
+		Checks []struct {
+			Name     string `json:"name"`
+			Ok       bool   `json:"ok"`
+			Required bool   `json:"required"`
+		} `json:"checks"`
+	}
+	_ = json.NewDecoder(resp.Body).Decode(&ready)
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK || ready.Status != "ready" || len(ready.Checks) != 2 ||
+		ready.Checks[1].Name != "opsforge" || ready.Checks[1].Ok || ready.Checks[1].Required {
+		t.Fatalf("readyz: %d %+v", resp.StatusCode, ready)
+	}
+	jar, _ := cookiejar.New(nil)
+	learner := &http.Client{Jar: jar}
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, base+"/api/v1/sessions", nil)
+	req.Header.Set("Origin", base)
+	resp, err = learner.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("session: %d", resp.StatusCode)
+	}
+	resp, err = learner.Get(base + "/api/v1/courses")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var list struct {
+		Courses []json.RawMessage `json:"courses"`
+	}
+	_ = json.NewDecoder(resp.Body).Decode(&list)
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK || len(list.Courses) == 0 {
+		t.Fatalf("no courses without OpsForge: %d %+v", resp.StatusCode, list)
+	}
+
+	down.Store(false)
+	deadline := time.Now().Add(5 * time.Second)
+	for checked.Load() == 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("the steps were never checked once OpsForge answered")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	time.Sleep(10 * recheckEvery)
+	if n := checked.Load(); n != 1 {
+		t.Fatalf("the steps were checked %d times; the recheck should stop after the first", n)
 	}
 }
 

@@ -66,6 +66,9 @@ func labProblem(err error) Problem {
 	case errors.Is(err, labsession.ErrAnswerRequired):
 		return problem(http.StatusUnprocessableEntity, "/problems/answer-required", "Answer required",
 			"a quiz step is checked with an answer (a choice index)")
+	case errors.Is(err, labsession.ErrOffline):
+		return problem(http.StatusServiceUnavailable, "/problems/labs-offline", "Labs are offline",
+			"labs run on OpsForge, which Academy cannot reach right now; the courses and quizzes still work")
 	case errors.Is(err, labsession.ErrToolchain):
 		return problem(http.StatusServiceUnavailable, "/problems/toolchain", "The lab toolchain failed", err.Error())
 	}

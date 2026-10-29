@@ -63,6 +63,10 @@ func TestReadyz(t *testing.T) {
 			{Name: "database", Probe: probe{}},
 			{Name: "toolchain", Probe: probe{errors.New("contract 2")}},
 		}, 503, "toolchain"},
+		"optional check down": {[]httpapi.ReadinessCheck{
+			{Name: "database", Probe: probe{}},
+			{Name: "opsforge", Probe: probe{errors.New("contract 2")}, Optional: true},
+		}, 200, "opsforge"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			rec := do(handler(built, tc.checks...), http.MethodGet, "/readyz")
@@ -75,7 +79,7 @@ func TestReadyz(t *testing.T) {
 				t.Fatalf("checks %+v", r.Checks)
 			}
 			for i, c := range r.Checks {
-				if c.Name != tc.checks[i].Name || c.Ok != (c.Name != tc.failed) {
+				if c.Name != tc.checks[i].Name || c.Ok != (c.Name != tc.failed) || c.Required == tc.checks[i].Optional {
 					t.Fatalf("check %d = %+v", i, c)
 				}
 				if !c.Ok && (c.Detail == nil || *c.Detail != "contract 2") {

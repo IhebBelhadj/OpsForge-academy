@@ -38,6 +38,7 @@ import (
 	"github.com/IhebBelhadj/opsforge-academy/academy/internal/rewards"
 	rewardspg "github.com/IhebBelhadj/opsforge-academy/academy/internal/rewards/postgres"
 	"github.com/IhebBelhadj/opsforge-academy/academy/internal/terminal"
+	"github.com/IhebBelhadj/opsforge-academy/academy/internal/tutor"
 	"github.com/IhebBelhadj/opsforge-academy/academy/internal/workspace"
 	workspacepg "github.com/IhebBelhadj/opsforge-academy/academy/internal/workspace/postgres"
 	"github.com/IhebBelhadj/opsforge-academy/academy/web"
@@ -57,6 +58,7 @@ type App struct {
 	legacy    *legacy.Service
 	progress  *progress.Service
 	rewards   *rewards.Service
+	tutor     *tutor.Service
 	ready     chan string // receives the listen address once serving (tests use port 0)
 }
 
@@ -92,11 +94,18 @@ func (a *App) Run(ctx context.Context) error {
 	} else if n > 0 {
 		a.log.Warn("lab attempts interrupted during their setup; abandon them to tear them down", slog.Int64("count", n))
 	}
-	if report, err := a.importer.Import(ctx); err != nil {
+	report, err := a.importer.Import(ctx)
+	if errors.Is(err, compiler.ErrSteps) {
+		// Academy serves its courses without OpsForge; only lab work needs it. Its steps are checked once it answers
+		a.log.Warn("OpsForge cannot check the scenario steps; importing them unchecked, labs need OpsForge",
+			slog.Any("error", err))
+		report, err = a.importer.ImportUnchecked(ctx)
+		go a.recheck(ctx)
+	}
+	if err != nil {
 		a.log.Warn("content import failed; serving the last imported catalogue", slog.Any("error", err))
 	} else {
-		a.log.Info("content imported", slog.Bool("changed", report.Changed), slog.Any("added", report.Added),
-			slog.Any("updated", report.Updated), slog.Any("retired", report.Retired))
+		logImport(a.log, report)
 	}
 	ln, err := (&net.ListenConfig{}).Listen(ctx, "tcp", a.cfg.Addr)
 	if err != nil {
@@ -112,6 +121,9 @@ func (a *App) Run(ctx context.Context) error {
 	srv.RegisterOnShutdown(a.hub.Close)
 	served := make(chan error, 1)
 	go func() { served <- srv.Serve(ln) }()
+	// The tutor's agents call Academy's MCP server (internal/httpapi/tutor.go) where it listens
+	a.tutor.SetEndpoint("http://" + ln.Addr().String() + "/mcp")
+	srv.RegisterOnShutdown(a.tutor.Shutdown)
 	a.log.Info("serving", slog.String("url", "http://"+ln.Addr().String()+"/"))
 	if a.ready != nil {
 		a.ready <- ln.Addr().String()
@@ -136,6 +148,38 @@ func (a *App) Run(ctx context.Context) error {
 		return err
 	}
 	return nil
+}
+
+// recheckEvery is how often an unchecked import retries the checked one (tests shorten it).
+var recheckEvery = time.Minute
+
+// recheck imports the packs again, steps checked, every recheckEvery until OpsForge answers or ctx ends.
+func (a *App) recheck(ctx context.Context) {
+	tick := time.NewTicker(recheckEvery)
+	defer tick.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+		}
+		report, err := a.importer.Import(ctx)
+		if errors.Is(err, compiler.ErrSteps) {
+			continue
+		}
+		if err != nil {
+			a.log.Error("checked content import failed; serving the unchecked catalogue", slog.Any("error", err))
+		} else {
+			a.log.Info("OpsForge checked the scenario steps")
+			logImport(a.log, report)
+		}
+		return
+	}
+}
+
+func logImport(log *slog.Logger, report contentimport.Report) {
+	log.Info("content imported", slog.Bool("changed", report.Changed), slog.Any("added", report.Added),
+		slog.Any("updated", report.Updated), slog.Any("retired", report.Retired))
 }
 
 // Providers (cmd/academy/wire.go wires them; tests build what they need by hand).
@@ -163,8 +207,9 @@ func provideOpsForge(cfg config.Config) (*opsforgeapi.Client, error) {
 	return c, err
 }
 
+// provideReadiness: the database decides readiness; OpsForge is reported (lab work needs it, the courses do not).
 func provideReadiness(store *postgres.Store, opsforge *opsforgeapi.Client) []httpapi.ReadinessCheck {
-	return []httpapi.ReadinessCheck{{Name: "database", Probe: store}, {Name: "opsforge", Probe: opsforge}}
+	return []httpapi.ReadinessCheck{{Name: "database", Probe: store}, {Name: "opsforge", Probe: opsforge, Optional: true}}
 }
 
 // provideTerminals runs the learners' shells on the lab host (OpsForge's WebSocket terminal).
@@ -215,7 +260,17 @@ func provideRewardingImporter(content *contentimport.Service, awards *rewards.Se
 
 // Import imports, then awards; a failed evaluation is logged (the import itself happened).
 func (i *importer) Import(ctx context.Context) (contentimport.Report, error) {
-	report, err := i.content.Import(ctx)
+	return i.award(ctx, i.content.Import)
+}
+
+// ImportUnchecked imports without OpsForge's step check, then awards.
+func (i *importer) ImportUnchecked(ctx context.Context) (contentimport.Report, error) {
+	return i.award(ctx, i.content.ImportUnchecked)
+}
+
+func (i *importer) award(ctx context.Context, imp func(context.Context) (contentimport.Report, error)) (
+	contentimport.Report, error) {
+	report, err := imp(ctx)
 	if err != nil {
 		return report, err
 	}
@@ -316,12 +371,12 @@ func provideHandler(build platform.Build, checks []httpapi.ReadinessCheck, shell
 	ids *identity.Service, importer *importer, courses *catalog.Service, events *history.Service,
 	hub *platform.Hub, learning *progress.Service, quizzes *quiz.Service, labs *labsession.Service,
 	ops *operations.Service, spaces *workspace.Service, awards *rewards.Service, state *labstate.Service,
-	log *slog.Logger) http.Handler {
+	tutors *tutor.Service, log *slog.Logger) http.Handler {
 	return httpapi.NewHandler(httpapi.Deps{
 		Build: build, Readiness: checks, Web: web.FS(), Log: log, Terminals: shells, Identity: ids,
 		Importer: importer, Catalog: courses, History: events, Streams: hub,
 		Progress: learning, Quizzes: quizzes, Labs: labs, Operations: ops, Workspaces: spaces, Awards: awards,
-		Lab: state,
+		Lab: state, Tutor: tutors,
 	})
 }
 
@@ -331,7 +386,8 @@ func provideLegacy(store *postgres.Store) *legacy.Service {
 
 func newApp(cfg config.Config, log *slog.Logger, handler http.Handler, terminals *terminal.Service,
 	importer *importer, hub *platform.Hub, ops *operations.Service, labs *labsession.Service,
-	ids *identity.Service, old *legacy.Service, learning *progress.Service, awards *rewards.Service) *App {
+	ids *identity.Service, old *legacy.Service, learning *progress.Service, awards *rewards.Service,
+	tutors *tutor.Service) *App {
 	return &App{cfg: cfg, log: log, handler: handler, terminals: terminals, importer: importer, hub: hub, ops: ops,
-		labs: labs, ids: ids, legacy: old, progress: learning, rewards: awards}
+		labs: labs, ids: ids, legacy: old, progress: learning, rewards: awards, tutor: tutors}
 }

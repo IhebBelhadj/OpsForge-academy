@@ -166,6 +166,34 @@ func TestAReconnectingClientGetsTheRecentOutputFirst(t *testing.T) {
 	})
 }
 
+func TestRecentIsTheNewestTerminalOfAWorkspace(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		svc, spawner := newService()
+		defer svc.Shutdown()
+		if _, ok := svc.Recent("lab-1"); ok {
+			t.Fatal("no terminal is open")
+		}
+		old, _ := svc.Open(spec)
+		_, _ = svc.Open(terminal.Spec{Workspace: "lab-2", Cols: 80, Rows: 24})
+		_, _ = svc.Open(spec)
+		spawner.pty(0).Emit("old shell")
+		spawner.pty(1).Emit("another lab")
+		spawner.pty(2).Emit("$ ping c")
+		synctest.Wait()
+		if out, ok := svc.Recent("lab-1"); !ok || string(out) != "$ ping c" {
+			t.Fatalf("%q %v", out, ok)
+		}
+		if _, ok := svc.Recent(""); ok {
+			t.Fatal("a terminal without a workspace is nobody's")
+		}
+		spawner.pty(2).Exit()
+		synctest.Wait()
+		if out, ok := svc.Recent("lab-1"); !ok || string(out) != "old shell" {
+			t.Fatalf("after the newest exited: %q %v (%s still open)", out, ok, old)
+		}
+	})
+}
+
 func TestReplayKeepsTheLast64KiB(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		svc, spawner := newService()

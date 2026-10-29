@@ -65,6 +65,7 @@ client, nothing else.
 | `labstate` | live lab state for the mimic panel (instances, links, faults), cached and pushed | `LabController` (state), `EventBus` |
 | `schemas` | Kubernetes JSON Schemas for the editor, generated from the cluster's `/openapi/v3`, cached per server version | `LabController` (kubectl raw) |
 | `rewards` | XP, badge rules over the event history, awards (retroactive) | `RewardRepo`, `EventBus` |
+| `tutor` | lab tutor conversations with a coding agent on this machine (Claude Code, Codex, Gemini CLI) over ACP; the agent sees the attempt through Academy's read-only MCP tools (`lab_attempt`, `lab_state`, `terminal_output`), every other permission refused; in memory, one per learner | `Runner` (ACP agent processes: `tutor/acp`), `Sources` (labsession, catalog, labstate, terminal), `Sender` (hub) |
 | `history` | the `EventBus`: appends every domain event to the `events` table, pushes it to the user's event streams, runs the in-process handlers (progress notices a completed course) | `Repo`, `Sender` (hub) |
 | `operations` | long operations (202): runs the work in the background, stores status and result, pushes each change; restart marks running ones interrupted | `Repo`, `Sender` (hub) |
 | `httpapi` | transport only: generated OpenAPI handlers → services; SSE hub; WebSocket upgrade; auth/CSRF/Host/Origin middleware; problem+json errors | services |
@@ -180,9 +181,13 @@ Origin), and Academy's terminal WebSockets are proxied to OpsForge's.
   (`/problems/another-lab-running`, ...), mapped from domain errors in one place.
 - **SSE** `/api/v1/events` (one stream per tab, hand-written handler, excluded from oapi-codegen): `history` (each
   history event, with its id: the browser's reconnect sends Last-Event-ID and the missed ones are replayed) and
-  `operation` (a long operation's new status). Later: `lab-state` (labstate), `workspace` (file watcher),
+  `operation` (a long operation's new status), `tutor` (a tutor conversation's status and streamed answer; not
+  kept, the page reads the conversation again). Later: `lab-state` (labstate), `workspace` (file watcher),
   `check-progress`. Replaces Phase 10's 2.5 s polling.
 - **WebSocket** `/ws/terminal/{session}`: binary frames for pty output, JSON control frames (input, resize).
+- **MCP** `/mcp` (streamable HTTP, stateless, hand-written next to the generated handlers): the tutor's tools for the
+  agents, each request authorized by its conversation's bearer token (no cookie: the agent is a process, not the
+  page). Agents that take MCP servers only on stdio run `academy mcp-proxy <url>` (token in `ACADEMY_TUTOR_TOKEN`).
 - Long operations (setup, checks with `wait_until`, submissions) return `202` with an operation id; progress and
   the result arrive on SSE; `GET /api/v1/operations/{id}` for reconnects.
 
@@ -198,6 +203,10 @@ Origin), and Academy's terminal WebSockets are proxied to OpsForge's.
 - Workspace paths are confined (`filepath.Rel` + no symlinks out), size-capped (10 MB per workspace, 1 MB per file).
 - Quiz keys and challenge reference solutions never leave the server before they are earned.
 - Lecture Markdown is rendered without raw HTML (sanitised on the client too).
+- The tutor's agents run as the learner's own processes with their own sign-in, in an empty working directory, with
+  no file system or terminal lent by Academy (ACP client capabilities off); every permission they ask for is
+  refused except Academy's read-only tools (`tutor.Permit`), so they explain but do not act. What an agent does
+  with its own built-in tools that need no permission is its own configuration's business.
 - `kubectl` runs only inside a sandbox, in the namespace OpsForge gave it, never with learner-supplied flags from the
   API (the terminal is the place for free commands). Academy holds no lab credentials: only OpsForge's API token.
 

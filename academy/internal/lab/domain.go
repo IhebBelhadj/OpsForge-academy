@@ -21,6 +21,9 @@ var (
 	ErrUnmet = errors.New("the running lab cannot host this")
 	// ErrGone is a sandbox OpsForge no longer has (deleted, expired, or cleaned up after a restart).
 	ErrGone = errors.New("the sandbox is gone")
+	// ErrOffline is lab work that cannot reach OpsForge (no answer, or no token to call it with): Academy serves its
+	// courses without OpsForge, labs need it.
+	ErrOffline = errors.New("OpsForge is out of reach")
 )
 
 // UnmetError is ErrUnmet with what the running lab lacks, one entry each ("layout multi-cluster (...)").

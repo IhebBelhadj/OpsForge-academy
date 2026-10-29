@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/coder/websocket"
@@ -38,6 +39,8 @@ type Fake struct {
 	Setup func(in json.RawMessage) (string, error)
 	Probe func(in json.RawMessage) (any, error) // the probeOutput document, or a failed job
 	Files *memstore.Store
+	// Offline drops every connection unanswered: OpsForge out of reach
+	Offline atomic.Bool
 
 	mu        sync.Mutex
 	jobs      map[string]*job
@@ -98,6 +101,12 @@ func send(w http.ResponseWriter, status int, doc map[string]any) {
 
 // ServeHTTP routes as lab/apiserver.py does.
 func (f *Fake) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if f.Offline.Load() {
+		if conn, _, err := http.NewResponseController(w).Hijack(); err == nil {
+			_ = conn.Close()
+		}
+		return
+	}
 	if r.Header.Get("Origin") != "" {
 		problem(w, http.StatusForbidden, "cross-origin", "browsers cannot call this API")
 		return

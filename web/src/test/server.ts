@@ -11,15 +11,23 @@ export const fixtures = {
   ready: {
     status: "ready",
     checks: [
-      { name: "database", ok: true },
-      { name: "toolchain", ok: true },
+      { name: "database", ok: true, required: true },
+      { name: "opsforge", ok: true, required: false },
     ],
   } satisfies Schemas["Readiness"],
-  toolchainDown: {
+  databaseDown: {
     status: "unavailable",
     checks: [
-      { name: "database", ok: true },
-      { name: "toolchain", ok: false, detail: "toolchain speaks contract 2, academy speaks 1" },
+      { name: "database", ok: false, required: true, detail: "connection refused" },
+      { name: "opsforge", ok: true, required: false },
+    ],
+  } satisfies Schemas["Readiness"],
+  /** OpsForge out of reach: Academy is ready (courses, quizzes), lab work is not. */
+  labsOffline: {
+    status: "ready",
+    checks: [
+      { name: "database", ok: true, required: true },
+      { name: "opsforge", ok: false, required: false, detail: "opsforge speaks contract 2, academy speaks 1" },
     ],
   } satisfies Schemas["Readiness"],
   me: { user: { id: 1, name: "learner" }, csrf: "csrf-token" } satisfies Schemas["Me"],
@@ -233,6 +241,33 @@ export function resetLab() {
   operations = {};
   probes = {};
   resetWorkspace();
+  tutorConversations = [];
+}
+
+/** The tutor: Claude Code is installed, Gemini CLI is not. A conversation is ready when first read after its start,
+ * an answer (it reads the learner's steps, then says what it saw) is done when first read after the question. */
+export const tutorAgents: Schemas["TutorAgent"][] = [
+  { id: "claude", name: "Claude Code", available: true, detail: "Zed's ACP adapter, fetched by npx on first use" },
+  { id: "gemini", name: "Gemini CLI", available: false, detail: "gemini is not installed (not on the PATH)" },
+];
+let tutorConversations: Schemas["TutorConversation"][] = [];
+export function tutorConversation(): Schemas["TutorConversation"] | undefined {
+  return tutorConversations[0];
+}
+function readTutor(c: Schemas["TutorConversation"]) {
+  if (c.status === "starting") c.status = "ready";
+  else if (c.status === "answering") {
+    const answer = c.messages.at(-1);
+    if (answer) {
+      answer.text = `You asked: ${c.messages.at(-2)?.text.split("\n")[0] ?? ""}`;
+      answer.tools = [
+        { id: "t1", title: "mcp__academy__lab_attempt", status: "completed" },
+        { id: "t2", title: "rm -rf ~", status: "denied" },
+      ];
+    }
+    c.status = "ready";
+  }
+  return c;
 }
 
 /** The lab's workspace: its files and a version for each (a counter stands in for the sha256). */
@@ -527,6 +562,50 @@ export const server = setupServer(
       );
     const { [from]: _, ...rest } = workspace;
     workspace = { ...rest, [to]: f };
+    return new HttpResponse(null, { status: 204 });
+  }),
+  http.get("*/api/v1/tutor/agents", () => HttpResponse.json({ agents: tutorAgents })),
+  http.get("*/api/v1/tutor/conversations", () => HttpResponse.json({ conversations: tutorConversations })),
+  http.post("*/api/v1/tutor/conversations", async ({ request }) => {
+    const { agent, attempt } = (await request.json()) as Schemas["TutorStart"];
+    if (!tutorAgents.some((a) => a.id === agent && a.available))
+      return HttpResponse.json(
+        { type: "/problems/agent-unavailable", title: "The agent is not installed", status: 409 },
+        { status: 409, ...problem },
+      );
+    const c: Schemas["TutorConversation"] = {
+      id: `conv-${String(tutorConversations.length + 1)}`,
+      agent,
+      attempt,
+      status: "starting",
+      error: null,
+      messages: [],
+      created_at: "2026-10-27T10:00:00Z",
+    };
+    tutorConversations = [c];
+    return HttpResponse.json(c, { status: 201 });
+  }),
+  http.get("*/api/v1/tutor/conversations/:conversation", ({ params }) => {
+    const c = tutorConversations.find((x) => x.id === params.conversation);
+    return c
+      ? HttpResponse.json(readTutor(c))
+      : HttpResponse.json(notFound("no such tutor conversation"), { status: 404, ...problem });
+  }),
+  http.post("*/api/v1/tutor/conversations/:conversation/messages", async ({ params, request }) => {
+    const c = tutorConversations.find((x) => x.id === params.conversation);
+    if (!c) return HttpResponse.json(notFound("no such tutor conversation"), { status: 404, ...problem });
+    if (c.status !== "ready")
+      return HttpResponse.json(
+        { type: "/problems/tutor-not-ready", title: "The tutor is not ready", status: 409 },
+        { status: 409, ...problem },
+      );
+    const { text } = (await request.json()) as Schemas["TutorMessageRequest"];
+    c.messages.push({ role: "learner", text, tools: [] }, { role: "tutor", text: "", tools: [] });
+    c.status = "answering";
+    return HttpResponse.json(c, { status: 202 });
+  }),
+  http.delete("*/api/v1/tutor/conversations/:conversation", ({ params }) => {
+    tutorConversations = tutorConversations.filter((x) => x.id !== params.conversation);
     return new HttpResponse(null, { status: 204 });
   }),
   http.get("*/api/v1/courses/:course/items/:item", ({ params }) => {

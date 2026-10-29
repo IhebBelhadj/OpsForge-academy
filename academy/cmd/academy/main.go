@@ -4,6 +4,7 @@
 //	academy [serve] [flags]          serve (default)
 //	academy migrate-legacy [flags]   import Phase 10's labs.db (-legacy-db) once; again imports only what is new
 //	academy compile [--json] [flags] [pack...]   compile the packs (default: the content folder's) and list errors
+//	academy mcp-proxy <url>          Academy's MCP server on stdio, for a tutor agent (internal/tutor/acp)
 //	academy version                  print the build version and the toolchain contract it speaks
 package main
 
@@ -32,7 +33,7 @@ func main() {
 func run(args []string) int {
 	command := "serve"
 	if len(args) > 0 && (args[0] == "serve" || args[0] == "version" || args[0] == "migrate-legacy" ||
-		args[0] == "compile") {
+		args[0] == "compile" || args[0] == "mcp-proxy") {
 		command, args = args[0], args[1:]
 	}
 	if command == "version" {
@@ -41,6 +42,9 @@ func run(args []string) int {
 	}
 	if command == "compile" {
 		return compilePacks(args)
+	}
+	if command == "mcp-proxy" {
+		return mcpProxy(args)
 	}
 	cfg, err := config.Load(args, os.Getenv)
 	if errors.Is(err, flag.ErrHelp) {

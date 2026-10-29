@@ -21,10 +21,12 @@ type Probe interface {
 	Ready(ctx context.Context) error
 }
 
-// ReadinessCheck is one named probe of readyz, reported in this order.
+// ReadinessCheck is one named probe of readyz, reported in this order. An optional check is reported but never
+// makes Academy unavailable (OpsForge: the courses are served without it, only lab work needs it).
 type ReadinessCheck struct {
-	Name  string
-	Probe Probe
+	Name     string
+	Probe    Probe
+	Optional bool
 }
 
 // Deps is what the transport needs, injected by cmd/academy.
@@ -46,6 +48,7 @@ type Deps struct {
 	Workspaces Workspaces
 	Awards     Awards
 	Lab        Lab
+	Tutor      Tutors
 }
 
 type server struct {
@@ -66,6 +69,9 @@ func NewHandler(deps Deps) http.Handler {
 	})
 	mux.HandleFunc("GET /ws/terminal/{session}", srv.terminalSocket)
 	mux.HandleFunc("GET /api/v1/events", srv.streamEvents)
+	if deps.Tutor != nil {
+		mux.Handle("/mcp", mcpHandler(deps.Tutor))
+	}
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, http.StatusNotFound, "/problems/not-found", "Not found", r.URL.Path+" is not an API resource")
 	})
@@ -89,17 +95,19 @@ func (s *server) GetReadyz(ctx context.Context, _ GetReadyzRequestObject) (GetRe
 		})
 	}
 	wg.Wait()
-	ready := Readiness{Status: Ready, Checks: make([]Check, 0, len(results))}
+	ready := Readiness{Status: ReadinessStatusReady, Checks: make([]Check, 0, len(results))}
 	for i, c := range s.deps.Readiness {
-		check := Check{Name: c.Name, Ok: results[i] == nil}
+		check := Check{Name: c.Name, Ok: results[i] == nil, Required: !c.Optional}
 		if results[i] != nil {
 			detail := results[i].Error()
 			check.Detail = &detail
-			ready.Status = Unavailable
+			if !c.Optional {
+				ready.Status = ReadinessStatusUnavailable
+			}
 		}
 		ready.Checks = append(ready.Checks, check)
 	}
-	if ready.Status != Ready {
+	if ready.Status != ReadinessStatusReady {
 		return GetReadyz503JSONResponse(ready), nil
 	}
 	return GetReadyz200JSONResponse(ready), nil

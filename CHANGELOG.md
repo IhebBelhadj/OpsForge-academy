@@ -6,6 +6,20 @@ OpsForge range it supports (its API contract: `academy/contract/PINNED`). Histor
 
 ## Unreleased
 
+- **Lab tutor (2026-10-27, spike):** a Tutor tab in the lab view talks with a coding agent the learner already has
+  on this machine (Claude Code and Codex through Zed's ACP adapters, pinned and fetched by npx; Gemini CLI natively),
+  over the Agent Client Protocol (`internal/tutor`, adapter `internal/tutor/acp` on `coder/acp-go-sdk` 0.13.5). The
+  agent sees the attempt only through Academy's MCP server (`/mcp`, `modelcontextprotocol/go-sdk` 1.8.0, bearer token
+  per conversation; `academy mcp-proxy` for stdio-only agents): `lab_attempt` (steps as the page shows them, hints
+  opened, never probes or solutions), `lab_state`, `terminal_output` (the terminal's replay, plain text). Every other
+  permission is refused and shown as such. A failed check offers **Ask the tutor why** (the step and what the check
+  measured). API: `/api/v1/tutor/{agents,conversations}`, SSE `tutor` events. Conversations are in memory, one per
+  learner, closed after 30 min idle and at shutdown (the agent's process group stopped, its directory removed).
+  Verified: Go and web tests (fake ACP agent process, scripted agent calling the tools over HTTP, the stdio proxy);
+  a smoke run of the built binary with a stand-in agent through `mcp-proxy` (tools answered, `${ns}` resolved, a
+  shell permission refused, no process or directory left). **Not yet run with a real agent** (Claude Code, Codex,
+  Gemini): their tool-call titles decide what `Permit` lets through.
+
 - **PostgreSQL (2026-10-26, split step 8):** the platform's database is PostgreSQL; no SQLite left but the reader of
   Phase 10's `labs.db`. `make db` runs it in Docker (`academy-pg`, `postgres:16-alpine`, 127.0.0.1:5433, volume
   `academy-pg`); `--db` is now `--database` / `ACADEMY_DATABASE_URL` (created if missing). The 11 SQLite migrations

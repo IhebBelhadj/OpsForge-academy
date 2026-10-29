@@ -38,6 +38,7 @@ func initApp(ctx context.Context, cfg config.Config, build platform.Build) (*App
 		provideRewardingImporter,
 		provideLabState,
 		provideLegacy,
+		provideTutor,
 		provideHandler,
 		newApp,
 	)
