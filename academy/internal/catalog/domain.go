@@ -157,7 +157,8 @@ type Quiz struct {
 	Questions  int // per attempt
 }
 
-// Challenge is the statement and the starting files; the tests are named, not shown.
+// Challenge is the statement and the starting files; the tests are named, not shown. A coding challenge (Kind
+// "code") also has its function, its languages and its examples (the sample cases); the other cases stay hidden.
 type Challenge struct {
 	Difficulty string
 	XP         int
@@ -168,6 +169,23 @@ type Challenge struct {
 	TimeLimitS int
 	Tests      []string
 	Hints      int // how many there are; each is opened at a cost
+	Code       *CodeChallenge
+}
+
+// CodeChallenge is what a coding challenge shows: its Cases are counted, only the Examples are given.
+type CodeChallenge struct {
+	Function  string
+	Params    []string
+	Languages []string
+	Compare   string
+	Examples  []Example
+	Cases     int
+}
+
+// Example is a sample case: the function's arguments and the expected answer.
+type Example struct {
+	Args []json.RawMessage `json:"args"`
+	Want json.RawMessage   `json:"want"`
 }
 
 // Lab is a lab's texts and steps; setup, teardown and the checks' probes stay on the server.
@@ -296,6 +314,11 @@ func ChallengeView(e Entry) (*Challenge, error) {
 		Starter               map[string]string
 		TimeLimitS            int `json:"time_limit_s"`
 		Tests                 []struct{ Name string }
+		Kind, Function        string
+		Compare               string
+		Params, Languages     []string
+		Samples               int
+		Cases                 []Example
 	}
 	if err := json.Unmarshal(e.Doc, &doc); err != nil {
 		return nil, fmt.Errorf("challenge %s: %w", e.Key, err)
@@ -304,6 +327,10 @@ func ChallengeView(e Entry) (*Challenge, error) {
 		Files: doc.Files, Starter: doc.Starter, TimeLimitS: doc.TimeLimitS, Hints: len(doc.Hints)}
 	for _, t := range doc.Tests {
 		c.Tests = append(c.Tests, t.Name)
+	}
+	if doc.Kind == "code" {
+		c.Code = &CodeChallenge{Function: doc.Function, Params: doc.Params, Languages: doc.Languages,
+			Compare: doc.Compare, Examples: doc.Cases[:min(doc.Samples, len(doc.Cases))], Cases: len(doc.Cases)}
 	}
 	return c, nil
 }

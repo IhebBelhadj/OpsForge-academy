@@ -66,6 +66,45 @@ func (e ChallengeViewDifficulty) Valid() bool {
 	}
 }
 
+// Defines values for CodeChallengeViewCompare.
+const (
+	Exact     CodeChallengeViewCompare = "exact"
+	Unordered CodeChallengeViewCompare = "unordered"
+)
+
+// Valid indicates whether the value is a known member of the CodeChallengeViewCompare enum.
+func (e CodeChallengeViewCompare) Valid() bool {
+	switch e {
+	case Exact:
+		return true
+	case Unordered:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CodeLanguage.
+const (
+	Go         CodeLanguage = "go"
+	Javascript CodeLanguage = "javascript"
+	Python     CodeLanguage = "python"
+)
+
+// Valid indicates whether the value is a known member of the CodeLanguage enum.
+func (e CodeLanguage) Valid() bool {
+	switch e {
+	case Go:
+		return true
+	case Javascript:
+		return true
+	case Python:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for CourseLevel.
 const (
 	CourseLevelAdvanced     CourseLevel = "advanced"
@@ -212,15 +251,21 @@ func (e Layout) Valid() bool {
 
 // Defines values for OperationKind.
 const (
-	OperationKindLabAbandon OperationKind = "lab.abandon"
-	OperationKindLabCheck   OperationKind = "lab.check"
-	OperationKindLabReset   OperationKind = "lab.reset"
-	OperationKindLabStart   OperationKind = "lab.start"
+	OperationKindChallengeRun    OperationKind = "challenge.run"
+	OperationKindChallengeSubmit OperationKind = "challenge.submit"
+	OperationKindLabAbandon      OperationKind = "lab.abandon"
+	OperationKindLabCheck        OperationKind = "lab.check"
+	OperationKindLabReset        OperationKind = "lab.reset"
+	OperationKindLabStart        OperationKind = "lab.start"
 )
 
 // Valid indicates whether the value is a known member of the OperationKind enum.
 func (e OperationKind) Valid() bool {
 	switch e {
+	case OperationKindChallengeRun:
+		return true
+	case OperationKindChallengeSubmit:
+		return true
 	case OperationKindLabAbandon:
 		return true
 	case OperationKindLabCheck:
@@ -381,6 +426,39 @@ func (e TutorStatus) Valid() bool {
 	}
 }
 
+// Defines values for Verdict.
+const (
+	Accepted            Verdict = "accepted"
+	CompileError        Verdict = "compile_error"
+	Error               Verdict = "error"
+	MemoryLimitExceeded Verdict = "memory_limit_exceeded"
+	RuntimeError        Verdict = "runtime_error"
+	TimeLimitExceeded   Verdict = "time_limit_exceeded"
+	WrongAnswer         Verdict = "wrong_answer"
+)
+
+// Valid indicates whether the value is a known member of the Verdict enum.
+func (e Verdict) Valid() bool {
+	switch e {
+	case Accepted:
+		return true
+	case CompileError:
+		return true
+	case Error:
+		return true
+	case MemoryLimitExceeded:
+		return true
+	case RuntimeError:
+		return true
+	case TimeLimitExceeded:
+		return true
+	case WrongAnswer:
+		return true
+	default:
+		return false
+	}
+}
+
 // AttemptStatus setup while its setup runs; failed when the setup failed
 type AttemptStatus string
 
@@ -400,8 +478,45 @@ type Badge struct {
 	Title   string `json:"title"`
 }
 
+// CaseResult defines model for CaseResult.
+type CaseResult struct {
+	Args []interface{} `json:"args"`
+
+	// Error The exception
+	Error *string `json:"error,omitempty"`
+
+	// Got What the function returned (absent after an error)
+	Got interface{} `json:"got,omitempty"`
+	Ms  *float64    `json:"ms,omitempty"`
+
+	// N The case's number
+	N      int         `json:"n"`
+	Passed bool        `json:"passed"`
+	Want   interface{} `json:"want"`
+}
+
+// ChallengeOutcome What judging code did. cases are every example for a run; for a submission only the first failing case (the hidden cases' arguments are not shown) and passed counts the cases before it. output is what the program printed itself (compiler errors included).
+type ChallengeOutcome struct {
+	Cases    []CaseResult `json:"cases"`
+	Error    *string      `json:"error,omitempty"`
+	Language CodeLanguage `json:"language"`
+	Output   string       `json:"output"`
+	Passed   int          `json:"passed"`
+	Seconds  float64      `json:"seconds"`
+
+	// Submission The recorded submission (submit only)
+	Submission *int64 `json:"submission,omitempty"`
+	Total      int    `json:"total"`
+
+	// Verdict error is OpsForge failing to judge (not recorded, not the learner's fault)
+	Verdict Verdict `json:"verdict"`
+	Xp      int     `json:"xp"`
+}
+
 // ChallengeView defines model for ChallengeView.
 type ChallengeView struct {
+	// Code A coding challenge (absent for a manifest one): the function to write (named per language: two_sum, twoSum, TwoSum), its languages (starter has solution.py, solution.js, solution.go for those), the examples (the sample cases, with their answers) and how many cases a submission is judged on.
+	Code       *CodeChallengeView      `json:"code,omitempty"`
 	Difficulty ChallengeViewDifficulty `json:"difficulty"`
 
 	// Files The files the learner writes
@@ -437,6 +552,40 @@ type Check struct {
 
 	// Required false: a failure does not make Academy unavailable (opsforge: only lab work needs it)
 	Required bool `json:"required"`
+}
+
+// CodeChallengeView A coding challenge (absent for a manifest one): the function to write (named per language: two_sum, twoSum, TwoSum), its languages (starter has solution.py, solution.js, solution.go for those), the examples (the sample cases, with their answers) and how many cases a submission is judged on.
+type CodeChallengeView struct {
+	Cases int `json:"cases"`
+
+	// Compare unordered accepts the list in any order
+	Compare   CodeChallengeViewCompare `json:"compare"`
+	Examples  []CodeExample            `json:"examples"`
+	Function  string                   `json:"function"`
+	Languages []CodeLanguage           `json:"languages"`
+	Params    Strings                  `json:"params"`
+}
+
+// CodeChallengeViewCompare unordered accepts the list in any order
+type CodeChallengeViewCompare string
+
+// CodeExample defines model for CodeExample.
+type CodeExample struct {
+	// Args The function's arguments
+	Args []interface{} `json:"args"`
+
+	// Want The answer
+	Want interface{} `json:"want"`
+}
+
+// CodeLanguage defines model for CodeLanguage.
+type CodeLanguage string
+
+// CodeRequest defines model for CodeRequest.
+type CodeRequest struct {
+	// Code The learner's solution file (solution.py
+	Code     string       `json:"code"`
+	Language CodeLanguage `json:"language"`
 }
 
 // Course defines model for Course.
@@ -873,17 +1022,24 @@ type Operation struct {
 	FinishedAt *time.Time    `json:"finished_at"`
 	Id         string        `json:"id"`
 	Kind       OperationKind `json:"kind"`
-	Result     *LabOutcome   `json:"result"`
+
+	// Result A lab operation's LabOutcome, a challenge's ChallengeOutcome; null while running
+	Result *Operation_Result `json:"result"`
 
 	// Status done is finished (the result says how it went); failed could not finish (error)
 	Status OperationStatus `json:"status"`
 
-	// Subject The lab id
+	// Subject The lab id, or a challenge's <course>/<item>
 	Subject string `json:"subject"`
 }
 
 // OperationKind defines model for Operation.Kind.
 type OperationKind string
+
+// Operation_Result A lab operation's LabOutcome, a challenge's ChallengeOutcome; null while running
+type Operation_Result struct {
+	union json.RawMessage
+}
 
 // OperationStatus done is finished (the result says how it went); failed could not finish (error)
 type OperationStatus string
@@ -1046,6 +1202,12 @@ type Section struct {
 	Title   string  `json:"title"`
 }
 
+// Solution defines model for Solution.
+type Solution struct {
+	// Files The reference solution per language
+	Files map[string]string `json:"files"`
+}
+
 // StepCheck How the step is passed: probe (the platform observes the lab), confirm (the learner says so; label on the button) or quiz (question and choices; the answer stays on the server).
 type StepCheck struct {
 	Choices  *Strings      `json:"choices,omitempty"`
@@ -1066,6 +1228,29 @@ type StepCheckRequest struct {
 
 // Strings defines model for Strings.
 type Strings = []string
+
+// Submission defines model for Submission.
+type Submission struct {
+	Code     string       `json:"code"`
+	Id       int64        `json:"id"`
+	Language CodeLanguage `json:"language"`
+	Passed   int          `json:"passed"`
+
+	// Result What judging code did. cases are every example for a run; for a submission only the first failing case (the hidden cases' arguments are not shown) and passed counts the cases before it. output is what the program printed itself (compiler errors included).
+	Result      ChallengeOutcome `json:"result"`
+	Seconds     float64          `json:"seconds"`
+	SubmittedAt time.Time        `json:"submitted_at"`
+	Total       int              `json:"total"`
+
+	// Verdict error is OpsForge failing to judge (not recorded, not the learner's fault)
+	Verdict Verdict `json:"verdict"`
+	Xp      int     `json:"xp"`
+}
+
+// SubmissionList defines model for SubmissionList.
+type SubmissionList struct {
+	Submissions []Submission `json:"submissions"`
+}
 
 // TerminalSession defines model for TerminalSession.
 type TerminalSession struct {
@@ -1175,6 +1360,9 @@ type User struct {
 	Name string `json:"name"`
 }
 
+// Verdict error is OpsForge failing to judge (not recorded, not the learner's fault)
+type Verdict string
+
 // WorkspaceEntry defines model for WorkspaceEntry.
 type WorkspaceEntry struct {
 	Path string `json:"path"`
@@ -1247,6 +1435,12 @@ type ShowHintJSONRequestBody = HintRequest
 // SaveNoteJSONRequestBody defines body for SaveNote for application/json ContentType.
 type SaveNoteJSONRequestBody = NoteUpdate
 
+// RunCodeJSONRequestBody defines body for RunCode for application/json ContentType.
+type RunCodeJSONRequestBody = CodeRequest
+
+// SubmitCodeJSONRequestBody defines body for SubmitCode for application/json ContentType.
+type SubmitCodeJSONRequestBody = CodeRequest
+
 // StartLabJSONRequestBody defines body for StartLab for application/json ContentType.
 type StartLabJSONRequestBody = LabStart
 
@@ -1267,6 +1461,68 @@ type WriteWorkspaceFileJSONRequestBody = WorkspaceFileWrite
 
 // MoveWorkspaceFileJSONRequestBody defines body for MoveWorkspaceFile for application/json ContentType.
 type MoveWorkspaceFileJSONRequestBody = WorkspaceMove
+
+// AsLabOutcome returns the union data inside the Operation_Result as a LabOutcome
+func (t Operation_Result) AsLabOutcome() (LabOutcome, error) {
+	var body LabOutcome
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromLabOutcome overwrites any union data inside the Operation_Result as the provided LabOutcome
+func (t *Operation_Result) FromLabOutcome(v LabOutcome) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeLabOutcome performs a merge with any union data inside the Operation_Result, using the provided LabOutcome
+func (t *Operation_Result) MergeLabOutcome(v LabOutcome) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsChallengeOutcome returns the union data inside the Operation_Result as a ChallengeOutcome
+func (t Operation_Result) AsChallengeOutcome() (ChallengeOutcome, error) {
+	var body ChallengeOutcome
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromChallengeOutcome overwrites any union data inside the Operation_Result as the provided ChallengeOutcome
+func (t *Operation_Result) FromChallengeOutcome(v ChallengeOutcome) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeChallengeOutcome performs a merge with any union data inside the Operation_Result, using the provided ChallengeOutcome
+func (t *Operation_Result) MergeChallengeOutcome(v ChallengeOutcome) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t Operation_Result) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *Operation_Result) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
@@ -1318,6 +1574,18 @@ type ServerInterface interface {
 	// StartQuizAttempt Start an attempt at a quiz
 	// (POST /api/v1/courses/{course}/items/{item}/quiz-attempts)
 	StartQuizAttempt(w http.ResponseWriter, r *http.Request, course string, item string)
+	// RunCode Run code on a coding challenge's examples
+	// (POST /api/v1/courses/{course}/items/{item}/runs)
+	RunCode(w http.ResponseWriter, r *http.Request, course string, item string)
+	// GetSolution A coding challenge's reference solution
+	// (GET /api/v1/courses/{course}/items/{item}/solution)
+	GetSolution(w http.ResponseWriter, r *http.Request, course string, item string)
+	// ListSubmissions The learner's submissions to a coding challenge
+	// (GET /api/v1/courses/{course}/items/{item}/submissions)
+	ListSubmissions(w http.ResponseWriter, r *http.Request, course string, item string)
+	// SubmitCode Submit code to a coding challenge
+	// (POST /api/v1/courses/{course}/items/{item}/submissions)
+	SubmitCode(w http.ResponseWriter, r *http.Request, course string, item string)
 	// VisitItem Record that the learner opened an item
 	// (POST /api/v1/courses/{course}/items/{item}/visit)
 	VisitItem(w http.ResponseWriter, r *http.Request, course string, item string)
@@ -1817,6 +2085,146 @@ func (siw *ServerInterfaceWrapper) StartQuizAttempt(w http.ResponseWriter, r *ht
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.StartQuizAttempt(w, r, course, item)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RunCode operation middleware
+func (siw *ServerInterfaceWrapper) RunCode(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "course" -------------
+	var course string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "course", r.PathValue("course"), &course, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "course", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "item" -------------
+	var item string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "item", r.PathValue("item"), &item, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "item", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RunCode(w, r, course, item)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetSolution operation middleware
+func (siw *ServerInterfaceWrapper) GetSolution(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "course" -------------
+	var course string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "course", r.PathValue("course"), &course, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "course", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "item" -------------
+	var item string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "item", r.PathValue("item"), &item, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "item", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetSolution(w, r, course, item)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListSubmissions operation middleware
+func (siw *ServerInterfaceWrapper) ListSubmissions(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "course" -------------
+	var course string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "course", r.PathValue("course"), &course, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "course", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "item" -------------
+	var item string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "item", r.PathValue("item"), &item, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "item", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListSubmissions(w, r, course, item)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SubmitCode operation middleware
+func (siw *ServerInterfaceWrapper) SubmitCode(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "course" -------------
+	var course string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "course", r.PathValue("course"), &course, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "course", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "item" -------------
+	var item string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "item", r.PathValue("item"), &item, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "item", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SubmitCode(w, r, course, item)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -2546,6 +2954,10 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/courses/{course}/progress", wrapper.GetCourseProgress)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/courses/{course}/items/{item}/complete", wrapper.CompleteLecture)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/courses/{course}/items/{item}/visit", wrapper.VisitItem)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/courses/{course}/items/{item}/runs", wrapper.RunCode)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/courses/{course}/items/{item}/submissions", wrapper.ListSubmissions)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/courses/{course}/items/{item}/submissions", wrapper.SubmitCode)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/courses/{course}/items/{item}/solution", wrapper.GetSolution)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/courses/{course}/items/{item}/notes", wrapper.GetNote)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/v1/courses/{course}/items/{item}/notes", wrapper.SaveNote)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/courses/{course}/items/{item}/quiz-attempts", wrapper.ListQuizAttempts)
@@ -3657,6 +4069,372 @@ func (response StartQuizAttempt409ApplicationProblemPlusJSONResponse) VisitStart
 	}
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RunCodeRequestObject struct {
+	Course string `json:"course"`
+	Item   string `json:"item"`
+	Body   *RunCodeJSONRequestBody
+}
+
+type RunCodeResponseObject interface {
+	VisitRunCodeResponse(w http.ResponseWriter) error
+}
+
+type RunCode202JSONResponse Operation
+
+func (response RunCode202JSONResponse) VisitRunCodeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(202)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RunCode401ApplicationProblemPlusJSONResponse struct {
+	NoSessionApplicationProblemPlusJSONResponse
+}
+
+func (response RunCode401ApplicationProblemPlusJSONResponse) VisitRunCodeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RunCode403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response RunCode403ApplicationProblemPlusJSONResponse) VisitRunCodeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RunCode404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response RunCode404ApplicationProblemPlusJSONResponse) VisitRunCodeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RunCode409ApplicationProblemPlusJSONResponse Problem
+
+func (response RunCode409ApplicationProblemPlusJSONResponse) VisitRunCodeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RunCode422ApplicationProblemPlusJSONResponse Problem
+
+func (response RunCode422ApplicationProblemPlusJSONResponse) VisitRunCodeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RunCode503ApplicationProblemPlusJSONResponse Problem
+
+func (response RunCode503ApplicationProblemPlusJSONResponse) VisitRunCodeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetSolutionRequestObject struct {
+	Course string `json:"course"`
+	Item   string `json:"item"`
+}
+
+type GetSolutionResponseObject interface {
+	VisitGetSolutionResponse(w http.ResponseWriter) error
+}
+
+type GetSolution200JSONResponse Solution
+
+func (response GetSolution200JSONResponse) VisitGetSolutionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetSolution401ApplicationProblemPlusJSONResponse struct {
+	NoSessionApplicationProblemPlusJSONResponse
+}
+
+func (response GetSolution401ApplicationProblemPlusJSONResponse) VisitGetSolutionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetSolution404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response GetSolution404ApplicationProblemPlusJSONResponse) VisitGetSolutionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetSolution409ApplicationProblemPlusJSONResponse Problem
+
+func (response GetSolution409ApplicationProblemPlusJSONResponse) VisitGetSolutionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSubmissionsRequestObject struct {
+	Course string `json:"course"`
+	Item   string `json:"item"`
+}
+
+type ListSubmissionsResponseObject interface {
+	VisitListSubmissionsResponse(w http.ResponseWriter) error
+}
+
+type ListSubmissions200JSONResponse SubmissionList
+
+func (response ListSubmissions200JSONResponse) VisitListSubmissionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSubmissions401ApplicationProblemPlusJSONResponse struct {
+	NoSessionApplicationProblemPlusJSONResponse
+}
+
+func (response ListSubmissions401ApplicationProblemPlusJSONResponse) VisitListSubmissionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSubmissions404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response ListSubmissions404ApplicationProblemPlusJSONResponse) VisitListSubmissionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSubmissions409ApplicationProblemPlusJSONResponse Problem
+
+func (response ListSubmissions409ApplicationProblemPlusJSONResponse) VisitListSubmissionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SubmitCodeRequestObject struct {
+	Course string `json:"course"`
+	Item   string `json:"item"`
+	Body   *SubmitCodeJSONRequestBody
+}
+
+type SubmitCodeResponseObject interface {
+	VisitSubmitCodeResponse(w http.ResponseWriter) error
+}
+
+type SubmitCode202JSONResponse Operation
+
+func (response SubmitCode202JSONResponse) VisitSubmitCodeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(202)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SubmitCode401ApplicationProblemPlusJSONResponse struct {
+	NoSessionApplicationProblemPlusJSONResponse
+}
+
+func (response SubmitCode401ApplicationProblemPlusJSONResponse) VisitSubmitCodeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SubmitCode403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response SubmitCode403ApplicationProblemPlusJSONResponse) VisitSubmitCodeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SubmitCode404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response SubmitCode404ApplicationProblemPlusJSONResponse) VisitSubmitCodeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SubmitCode409ApplicationProblemPlusJSONResponse Problem
+
+func (response SubmitCode409ApplicationProblemPlusJSONResponse) VisitSubmitCodeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SubmitCode422ApplicationProblemPlusJSONResponse Problem
+
+func (response SubmitCode422ApplicationProblemPlusJSONResponse) VisitSubmitCodeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SubmitCode503ApplicationProblemPlusJSONResponse Problem
+
+func (response SubmitCode503ApplicationProblemPlusJSONResponse) VisitSubmitCodeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(503)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -5294,6 +6072,18 @@ type StrictServerInterface interface {
 	// StartQuizAttempt Start an attempt at a quiz
 	// (POST /api/v1/courses/{course}/items/{item}/quiz-attempts)
 	StartQuizAttempt(ctx context.Context, request StartQuizAttemptRequestObject) (StartQuizAttemptResponseObject, error)
+	// RunCode Run code on a coding challenge's examples
+	// (POST /api/v1/courses/{course}/items/{item}/runs)
+	RunCode(ctx context.Context, request RunCodeRequestObject) (RunCodeResponseObject, error)
+	// GetSolution A coding challenge's reference solution
+	// (GET /api/v1/courses/{course}/items/{item}/solution)
+	GetSolution(ctx context.Context, request GetSolutionRequestObject) (GetSolutionResponseObject, error)
+	// ListSubmissions The learner's submissions to a coding challenge
+	// (GET /api/v1/courses/{course}/items/{item}/submissions)
+	ListSubmissions(ctx context.Context, request ListSubmissionsRequestObject) (ListSubmissionsResponseObject, error)
+	// SubmitCode Submit code to a coding challenge
+	// (POST /api/v1/courses/{course}/items/{item}/submissions)
+	SubmitCode(ctx context.Context, request SubmitCodeRequestObject) (SubmitCodeResponseObject, error)
 	// VisitItem Record that the learner opened an item
 	// (POST /api/v1/courses/{course}/items/{item}/visit)
 	VisitItem(ctx context.Context, request VisitItemRequestObject) (VisitItemResponseObject, error)
@@ -5838,6 +6628,128 @@ func (sh *strictHandler) StartQuizAttempt(w http.ResponseWriter, r *http.Request
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(StartQuizAttemptResponseObject); ok {
 		if err := validResponse.VisitStartQuizAttemptResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RunCode operation middleware
+func (sh *strictHandler) RunCode(w http.ResponseWriter, r *http.Request, course string, item string) {
+	var request RunCodeRequestObject
+
+	request.Course = course
+	request.Item = item
+
+	var body RunCodeJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RunCode(ctx, request.(RunCodeRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RunCode")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RunCodeResponseObject); ok {
+		if err := validResponse.VisitRunCodeResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetSolution operation middleware
+func (sh *strictHandler) GetSolution(w http.ResponseWriter, r *http.Request, course string, item string) {
+	var request GetSolutionRequestObject
+
+	request.Course = course
+	request.Item = item
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetSolution(ctx, request.(GetSolutionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetSolution")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetSolutionResponseObject); ok {
+		if err := validResponse.VisitGetSolutionResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListSubmissions operation middleware
+func (sh *strictHandler) ListSubmissions(w http.ResponseWriter, r *http.Request, course string, item string) {
+	var request ListSubmissionsRequestObject
+
+	request.Course = course
+	request.Item = item
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListSubmissions(ctx, request.(ListSubmissionsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListSubmissions")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListSubmissionsResponseObject); ok {
+		if err := validResponse.VisitListSubmissionsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SubmitCode operation middleware
+func (sh *strictHandler) SubmitCode(w http.ResponseWriter, r *http.Request, course string, item string) {
+	var request SubmitCodeRequestObject
+
+	request.Course = course
+	request.Item = item
+
+	var body SubmitCodeJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SubmitCode(ctx, request.(SubmitCodeRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SubmitCode")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SubmitCodeResponseObject); ok {
+		if err := validResponse.VisitSubmitCodeResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

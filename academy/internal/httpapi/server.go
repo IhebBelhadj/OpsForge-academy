@@ -43,6 +43,7 @@ type Deps struct {
 	Streams    Streams
 	Progress   Progress
 	Quizzes    Quizzes
+	Challenges Challenges
 	Labs       Labs
 	Operations Operations
 	Workspaces Workspaces

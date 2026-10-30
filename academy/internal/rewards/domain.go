@@ -28,15 +28,22 @@ type QuizPass struct {
 	XP           int
 }
 
+// ChallengePass is one accepted challenge submission (its XP is 0 after the first).
+type ChallengePass struct {
+	Course, Item string
+	XP           int
+}
+
 // History is what the rules read: the learner's passes, the courses completed, and the labs of each live course.
 type History struct {
 	Labs       []LabPass
 	Quizzes    []QuizPass
+	Challenges []ChallengePass
 	Courses    map[string]bool
 	CourseLabs map[string][]string
 }
 
-// XP is the best XP of each lab plus the best XP of each quiz.
+// XP is the best XP of each lab, quiz and challenge.
 func (h History) XP() int {
 	best := map[string]int{}
 	for _, p := range h.Labs {
@@ -44,6 +51,10 @@ func (h History) XP() int {
 	}
 	for _, p := range h.Quizzes {
 		k := "quiz:" + p.Course + "/" + p.Item
+		best[k] = max(best[k], p.XP)
+	}
+	for _, p := range h.Challenges {
+		k := "challenge:" + p.Course + "/" + p.Item
 		best[k] = max(best[k], p.XP)
 	}
 	total := 0

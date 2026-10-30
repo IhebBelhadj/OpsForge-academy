@@ -87,11 +87,14 @@ func TestReadiness(t *testing.T) {
 	if err := c.Ready(context.Background()); err != nil {
 		t.Fatalf("newer minor: %v", err)
 	}
-	// Below MinMinor (0 today: only reachable once Academy uses an addition) readyz names the release it needs
-	old := &opsforgeapi.TooOldError{Got: opsforgeapi.Version{Contract: 1, Minor: 0, OpsForge: "1.0.0"}}
-	if !strings.Contains(old.Error(), "academy needs 1.0 (opsforge 1.0.0 or later)") {
-		t.Fatalf("too old: %v", old)
+	// Below MinMinor readyz names the release it needs
+	f.Minor = 1
+	var old *opsforgeapi.TooOldError
+	if err := c.Ready(context.Background()); !errors.As(err, &old) ||
+		!strings.Contains(old.Error(), "academy needs 1.2 (opsforge 1.2.0 or later)") {
+		t.Fatalf("too old: %v", err)
 	}
+	f.Minor = opsforgeapi.MinMinor
 	wrong := client(t, c.URL(), "nope")
 	var p *opsforgeapi.Problem
 	if err := wrong.Ready(context.Background()); !errors.As(err, &p) || p.Status != 401 || p.Slug() != "no-token" {

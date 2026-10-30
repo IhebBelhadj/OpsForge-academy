@@ -1,0 +1,91 @@
+// OpsForge Academy's Go judge: calls the learner's function in solution.go once per case of tests.json and prints
+// one marked line per case (what it returned, or the panic it raised). Academy compares the results.
+package main
+
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"reflect"
+	"time"
+)
+
+const academyMark = "\x1eACADEMY "
+
+var academyTarget = {{FUNCTION}}
+
+func academyReport(record map[string]any) {
+	line, err := json.Marshal(record)
+	if err != nil {
+		line, _ = json.Marshal(map[string]any{"i": record["i"], "error": "the result is not JSON data: " + err.Error(),
+			"ms": record["ms"]})
+	}
+	fmt.Fprint(os.Stdout, "\n"+academyMark+string(line)+"\n")
+}
+
+// academyValue is v for JSON, nil slices and maps written as empty ones (Go's zero value means "nothing" here).
+func academyValue(v reflect.Value) any {
+	switch v.Kind() {
+	case reflect.Slice:
+		if v.IsNil() {
+			return []any{}
+		}
+	case reflect.Map:
+		if v.IsNil() {
+			return map[string]any{}
+		}
+	}
+	return v.Interface()
+}
+
+func academyCall(fn reflect.Value, args []json.RawMessage) (got any, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("panic: %v", r)
+		}
+	}()
+	t := fn.Type()
+	if len(args) != t.NumIn() {
+		return nil, fmt.Errorf("the function takes %d arguments, the case has %d", t.NumIn(), len(args))
+	}
+	in := make([]reflect.Value, len(args))
+	for i, a := range args {
+		p := reflect.New(t.In(i))
+		if err := json.Unmarshal(a, p.Interface()); err != nil {
+			return nil, fmt.Errorf("argument %d does not fit %s: %v", i+1, t.In(i), err)
+		}
+		in[i] = p.Elem()
+	}
+	out := fn.Call(in)
+	if len(out) == 0 {
+		return nil, nil
+	}
+	return academyValue(out[0]), nil
+}
+
+func main() {
+	data, err := os.ReadFile("tests.json")
+	if err != nil {
+		panic(err)
+	}
+	var tests struct {
+		Cases []struct {
+			Args []json.RawMessage `json:"args"`
+		} `json:"cases"`
+	}
+	if err := json.Unmarshal(data, &tests); err != nil {
+		panic(err)
+	}
+	fn := reflect.ValueOf(academyTarget)
+	for i, c := range tests.Cases {
+		start := time.Now()
+		got, err := academyCall(fn, c.Args)
+		record := map[string]any{"i": i, "ms": float64(time.Since(start).Microseconds()) / 1000}
+		if err != nil {
+			record["error"] = err.Error()
+		} else {
+			record["got"] = got
+		}
+		academyReport(record)
+	}
+}

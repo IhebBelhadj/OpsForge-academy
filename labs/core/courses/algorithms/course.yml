@@ -1,0 +1,29 @@
+title: Data structures and algorithms
+subtitle: Short coding problems in Python, JavaScript or Go, judged on hidden test cases in the lab.
+level: beginner
+position: 3
+needs: [k3s]
+outcomes:
+  - Pick a hash map to trade memory for a single pass over the input
+  - Use a stack to match what opens with what closes
+  - Sort first when the order of the input hides the answer
+requirements:
+  - Basic programming in Python, JavaScript or Go (functions, loops, lists and maps).
+description: |
+  LeetCode-style problems: you write one function, and the judge calls it on test cases, some shown and some hidden.
+  **Run** tries the examples; **Submit** tries every case and records the verdict.
+
+  Your code runs in the lab, in a container of its own with no network, a memory limit and a time limit.
+sections:
+  - title: Getting started
+    items:
+      - lecture: how-the-judge-works
+  - title: Hash maps
+    items:
+      - challenge: two-sum
+  - title: Stacks
+    items:
+      - challenge: valid-parentheses
+  - title: Sorting
+    items:
+      - challenge: merge-intervals

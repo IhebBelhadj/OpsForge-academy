@@ -24,6 +24,9 @@ export type QuizAttemptSummary = Schemas["QuizAttemptSummary"];
 export type LabAttempt = Schemas["LabAttempt"];
 export type LabOutcome = Schemas["LabOutcome"];
 export type Operation = Schemas["Operation"];
+export type ChallengeOutcome = Schemas["ChallengeOutcome"];
+export type CodeLanguage = Schemas["CodeLanguage"];
+export type Submission = Schemas["Submission"];
 export type LabState = Schemas["LabState"];
 export type WorkspaceFile = Schemas["WorkspaceFile"];
 export type TutorAgent = Schemas["TutorAgent"];
@@ -93,6 +96,8 @@ export const keys = {
   course: (course: string) => ["courses", course] as const,
   item: (course: string, item: string) => ["courses", course, "items", item] as const,
   quizAttempts: (course: string, item: string) => ["courses", course, "items", item, "quiz-attempts"] as const,
+  submissions: (course: string, item: string) => ["courses", course, "items", item, "submissions"] as const,
+  solution: (course: string, item: string) => ["courses", course, "items", item, "solution"] as const,
   currentAttempt: ["attempts", "current"] as const,
   labState: ["lab", "state"] as const,
   workspace: (workspace: string) => ["workspaces", workspace] as const,
@@ -151,6 +156,26 @@ export const queries = {
         params: { path: { course, item } },
       });
       return data?.attempts ?? fail(error);
+    },
+  }),
+  /** The learner's submissions to a coding challenge, newest first. */
+  submissions: (course: string, item: string) => ({
+    queryKey: keys.submissions(course, item),
+    queryFn: async () => {
+      const { data, error } = await api.GET("/api/v1/courses/{course}/items/{item}/submissions", {
+        params: { path: { course, item } },
+      });
+      return data?.submissions ?? fail(error);
+    },
+  }),
+  /** A coding challenge's reference solution per language (409 until a submission is accepted). */
+  solution: (course: string, item: string) => ({
+    queryKey: keys.solution(course, item),
+    queryFn: async () => {
+      const { data, error } = await api.GET("/api/v1/courses/{course}/items/{item}/solution", {
+        params: { path: { course, item } },
+      });
+      return data?.files ?? fail(error);
     },
   }),
   /** The learner's lab in setup or running, or null. */
@@ -227,6 +252,42 @@ export const actions = {
     const { data, error } = await api.POST("/api/v1/quiz-attempts/{attempt}/submit", {
       params: { path: { attempt } },
       body: { answers },
+    });
+    return data ?? fail(error);
+  },
+  /** Runs code on a coding challenge's examples: the operation judging it (202; its result a ChallengeOutcome). */
+  runCode: async ({
+    course,
+    item,
+    language,
+    code,
+  }: {
+    course: string;
+    item: string;
+    language: CodeLanguage;
+    code: string;
+  }) => {
+    const { data, error } = await api.POST("/api/v1/courses/{course}/items/{item}/runs", {
+      params: { path: { course, item } },
+      body: { language, code },
+    });
+    return data ?? fail(error);
+  },
+  /** Submits code to a coding challenge: judged on every case and recorded (202). */
+  submitCode: async ({
+    course,
+    item,
+    language,
+    code,
+  }: {
+    course: string;
+    item: string;
+    language: CodeLanguage;
+    code: string;
+  }) => {
+    const { data, error } = await api.POST("/api/v1/courses/{course}/items/{item}/submissions", {
+      params: { path: { course, item } },
+      body: { language, code },
     });
     return data ?? fail(error);
   },

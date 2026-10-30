@@ -79,6 +79,9 @@ const (
 	quizXP             = 20
 	challengeXP        = 100
 	challengeTimeLimit = 120
+	codeChallengeXP    = 50
+	codeTimeLimit      = 10
+	codeMaxTimeLimit   = 60 // OpsForge's longest program step
 )
 
 // checks are a lab step's check types; each returns its argument's errors and queues its steps.
@@ -396,6 +399,10 @@ func quizErrors(quiz, lectures map[string]any, at string, p *problems) {
 }
 
 func challengeErrors(ch map[string]any, at string, p *problems) {
+	if ch["kind"] == "code" {
+		codeChallengeErrors(ch, at, p)
+		return
+	}
 	starter := ch["starter"].(map[string]any)
 	for _, f := range stringList(ch["files"]) {
 		if _, ok := starter[f]; !ok {
@@ -408,6 +415,48 @@ func challengeErrors(ch map[string]any, at string, p *problems) {
 		probeErrors(test["probe"], at+name+": probe: ", p)
 		action, _ := stepList(test["action"])
 		p.steps(at+name+": action: ", lab.StepSet{Steps: action, NoFaults: true})
+	}
+}
+
+// codeChallengeErrors: starter/ and solution/ hold solution.py, solution.js or solution.go (a language each), the
+// same languages in both; every case has an argument per parameter; samples and the time limit fit.
+func codeChallengeErrors(ch map[string]any, at string, p *problems) {
+	known := map[string]bool{}
+	for _, l := range codeLanguages {
+		known[l.file] = true
+	}
+	starter, _ := ch["starter"].(map[string]any)
+	solution, _ := ch["solution"].(map[string]any)
+	for _, dir := range []struct {
+		name  string
+		files map[string]any
+	}{{"starter", starter}, {"solution", solution}} {
+		for _, f := range sortedKeys(dir.files) {
+			if !known[f] {
+				p.add("%s%s/%s: a coding challenge's files are solution.py, solution.js and solution.go", at, dir.name, f)
+			}
+		}
+	}
+	for _, l := range codeLanguages {
+		_, inStarter := starter[l.file]
+		_, inSolution := solution[l.file]
+		if inStarter != inSolution {
+			p.add("%s%s is in only one of starter/ and solution/", at, l.file)
+		}
+	}
+	params := stringList(ch["params"])
+	cases, _ := ch["cases"].([]any)
+	for i, c := range cases {
+		if args, ok := c.(map[string]any)["args"].([]any); ok && len(args) != len(params) {
+			p.add("%scases[%d]: %d arguments for %d parameters (%s)", at, i, len(args), len(params),
+				strings.Join(params, ", "))
+		}
+	}
+	if n, ok := ch["samples"].(int64); ok && n > int64(len(cases)) {
+		p.add("%ssamples %d is more than the %d cases", at, n, len(cases))
+	}
+	if t, ok := durationS(get(ch, "time_limit", nil)).(int); ok && t > codeMaxTimeLimit {
+		p.add("%stime_limit is at most %ds", at, codeMaxTimeLimit)
 	}
 }
 

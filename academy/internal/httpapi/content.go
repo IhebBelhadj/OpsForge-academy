@@ -141,6 +141,20 @@ func (s *server) GetItem(ctx context.Context, req GetItemRequestObject) (GetItem
 		out.Challenge = &ChallengeView{Difficulty: ChallengeViewDifficulty(c.Difficulty), Xp: c.XP,
 			Needs: strs(c.Needs), Statement: resolve(c.Statement), Files: strs(c.Files), Starter: starter,
 			TimeLimitS: c.TimeLimitS, Tests: strs(c.Tests), Hints: c.Hints}
+		if code := c.Code; code != nil {
+			v := &CodeChallengeView{Function: code.Function, Params: strs(code.Params),
+				Compare: CodeChallengeViewCompare(code.Compare), Cases: code.Cases,
+				Languages: make([]CodeLanguage, len(code.Languages)), Examples: make([]CodeExample, len(code.Examples))}
+			for i, l := range code.Languages {
+				v.Languages[i] = CodeLanguage(l)
+			}
+			for i, ex := range code.Examples {
+				if err := convert(ex, &v.Examples[i]); err != nil {
+					return out, err
+				}
+			}
+			out.Challenge.Code = v
+		}
 	case it.Lab != nil:
 		out.Lab = labView(it.Lab, resolve)
 	}

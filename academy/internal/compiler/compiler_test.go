@@ -594,3 +594,78 @@ func TestFolders(t *testing.T) {
 		t.Fatalf("paths %q, %q", src.List[0].Path, src.List[1].Path)
 	}
 }
+
+// addCodeChallenge writes a coding challenge "sum" (add(a, b) in Python and Go) into the demo pack's course and
+// lists it in its first section; change edits its challenge.yml first.
+func addCodeChallenge(t *testing.T, dir string, change func(map[string]any)) string {
+	t.Helper()
+	base := dir + "/courses/k8s-intro/challenges/sum"
+	for _, sub := range []string{"starter", "solution"} {
+		if err := os.MkdirAll(base+"/"+sub, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(t, base+"/challenge.yml", "kind: code\ntitle: Sum\ndifficulty: easy\nminutes: 5\nstatement: Add.\n"+
+		"function: add\nparams: [a, b]\nsamples: 1\ncases:\n  - {args: [1, 2], want: 3}\n  - {args: [20, 22], want: 42}\n")
+	if change != nil {
+		edit(t, base+"/challenge.yml", change)
+	}
+	write(t, base+"/starter/solution.py", "def add(a, b):\n    pass\n")
+	write(t, base+"/solution/solution.py", "def add(a, b):\n    return a + b\n")
+	write(t, base+"/starter/solution.go", "package main\n")
+	write(t, base+"/solution/solution.go", "package main\n\nfunc Add(a, b int) int { return a + b }\n")
+	edit(t, dir+courseFile, addItem("challenge", "sum"))
+	return base
+}
+
+func TestCodingChallengesCompile(t *testing.T) {
+	dir := pack(t)
+	addCodeChallenge(t, dir, nil)
+	p := onlyPack(t, compile(t, filepath.Dir(dir), dir))
+	var sum map[string]any
+	for _, c := range list(p["challenges"]) {
+		if obj(c)["id"] == "sum" {
+			sum = obj(c)
+		}
+	}
+	if sum == nil || sum["kind"] != "code" || fmt.Sprint(sum["languages"]) != "[python go]" ||
+		sum["time_limit_s"] != float64(10) || sum["xp"] != float64(50) || sum["compare"] != "exact" ||
+		len(list(sum["cases"])) != 2 || len(list(sum["tests"])) != 0 || at(sum, "needs", 0) != "k3s" ||
+		at(sum, "solution", "solution.go") == nil {
+		t.Fatalf("%v", sum)
+	}
+}
+
+func TestCodingChallengeErrors(t *testing.T) {
+	for _, c := range []struct {
+		name   string
+		change func(map[string]any)
+		files  func(base string)
+		want   string
+	}{
+		{"arguments", func(d map[string]any) { obj(at(d, "cases", 1))["args"] = []any{1} }, nil,
+			"challenges/sum: cases[1]: 1 arguments for 2 parameters (a, b)"},
+		{"samples", set("samples", 3), nil, "challenges/sum: samples 3 is more than the 2 cases"},
+		{"time limit", set("time_limit", "2m"), nil, "challenges/sum: time_limit is at most 60s"},
+		{"a want", func(d map[string]any) { delete(obj(at(d, "cases", 0)), "want") }, nil,
+			"missing property 'want'"},
+		{"a function name", set("function", "Add"), nil, "challenges/sum/function"},
+		{"an unknown file", nil, func(base string) { write(t, base+"/starter/solution.rb", "") },
+			"challenges/sum: starter/solution.rb: a coding challenge's files are solution.py, solution.js and solution.go"},
+		{"a language without a solution", nil, func(base string) {
+			write(t, base+"/starter/solution.js", "function add(a, b) {}\n")
+		}, "challenges/sum: solution.js is in only one of starter/ and solution/"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			dir := pack(t)
+			base := addCodeChallenge(t, dir, c.change)
+			if c.files != nil {
+				c.files(base)
+			}
+			b := compile(t, filepath.Dir(dir), dir)
+			if !slices.ContainsFunc(b.messages(), func(m string) bool { return strings.Contains(m, c.want) }) {
+				t.Fatalf("no %q in %q", c.want, b.messages())
+			}
+		})
+	}
+}

@@ -2,6 +2,7 @@ package opsforgeapi
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -80,6 +81,15 @@ func (s Sandboxes) Probe(ctx context.Context, id string, req lab.ProbeRequest) (
 		Contract int `json:"contract"`
 		lab.ProbeRequest
 	}{Contract, req}, "probeOutput", &res))
+}
+
+// Act runs steps in a ready sandbox (a job: a challenge's test action, a program).
+func (s Sandboxes) Act(ctx context.Context, id string, steps []json.RawMessage) (lab.RunResult, error) {
+	var res lab.RunResult
+	return res, labErr(s.c.job(ctx, http.MethodPost, sandboxPath(id, "actions"), struct {
+		Contract int               `json:"contract"`
+		Steps    []json.RawMessage `json:"steps"`
+	}{Contract, steps}, "runOutput", &res))
 }
 
 // Reset runs a ready sandbox's teardown, then its setup again (a job; the files are kept).

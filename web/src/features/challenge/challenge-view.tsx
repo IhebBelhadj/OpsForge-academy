@@ -14,6 +14,8 @@ import { duration } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { type Submission, submissions as past } from "@/mock";
 
+import { CodeChallengeView } from "./code-challenge-view";
+
 type Challenge = NonNullable<Item["challenge"]>;
 type Outcome =
   | { kind: "run"; ok: boolean; lines: string[] }
@@ -31,11 +33,21 @@ const verdictLamp = {
   "Time limit exceeded": "amber",
 } as const;
 
-/** A coding challenge in the player (design.md §5b, LeetCode's problem screen): the statement, solution and
+/** A challenge in the player: a coding challenge (code judged in the lab) or a manifest one. */
+export function ChallengeView(props: { item: Item; number: string; next?: ReactNode }) {
+  const challenge = props.item.challenge;
+  return challenge?.code ? (
+    <CodeChallengeView {...props} challenge={challenge} code={challenge.code} />
+  ) : (
+    <ManifestChallengeView {...props} />
+  );
+}
+
+/** A manifest challenge in the player (design.md §5b, LeetCode's problem screen): the statement, solution and
  * submissions left; the manifest editor right, with test cases and the result below it. Run = server dry-run,
- * Submit = apply in a scratch namespace and run the tests; both answer from mock data until the challenge module
- * exists. */
-export function ChallengeView({ item, number, next }: { item: Item; number: string; next?: ReactNode }) {
+ * Submit = apply in a scratch namespace and run the tests; both answer from mock data until manifest challenges
+ * are judged. */
+function ManifestChallengeView({ item, number, next }: { item: Item; number: string; next?: ReactNode }) {
   const c = item.challenge;
   const mobile = useIsMobile();
   const [files, setFiles] = useState<Record<string, string>>(() => ({ ...(c?.starter ?? {}) }));

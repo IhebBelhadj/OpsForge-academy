@@ -274,6 +274,76 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/courses/{course}/items/{item}/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                course: string;
+                item: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Run code on a coding challenge's examples
+         * @description Calls the learner's function on the challenge's sample cases in a sandbox on OpsForge (a pod with no network, the language's runtime and the challenge's time limit) and compares what it returned with each case's answer. Runs in the background (202; the operation's result is a ChallengeOutcome). Nothing is recorded.
+         */
+        post: operations["runCode"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/courses/{course}/items/{item}/submissions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                course: string;
+                item: string;
+            };
+            cookie?: never;
+        };
+        /** The learner's submissions to a coding challenge */
+        get: operations["listSubmissions"];
+        put?: never;
+        /**
+         * Submit code to a coding challenge
+         * @description Judges the learner's function on every case, hidden ones too, as runCode does, and records the submission with its verdict (unless OpsForge could not judge it: verdict error). The first accepted submission earns the challenge's XP and completes the item. Runs in the background (202; the result is a ChallengeOutcome).
+         */
+        post: operations["submitCode"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/courses/{course}/items/{item}/solution": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                course: string;
+                item: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * A coding challenge's reference solution
+         * @description Per language, once the learner has an accepted submission.
+         */
+        get: operations["getSolution"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/courses/{course}/items/{item}/notes": {
         parameters: {
             query?: never;
@@ -925,6 +995,93 @@ export interface components {
             tests: components["schemas"]["Strings"];
             /** @description How many hints there are */
             hints: number;
+            code?: components["schemas"]["CodeChallengeView"];
+        };
+        /** @description A coding challenge (absent for a manifest one): the function to write (named per language: two_sum, twoSum, TwoSum), its languages (starter has solution.py, solution.js, solution.go for those), the examples (the sample cases, with their answers) and how many cases a submission is judged on. */
+        CodeChallengeView: {
+            function: string;
+            params: components["schemas"]["Strings"];
+            languages: components["schemas"]["CodeLanguage"][];
+            /**
+             * @description unordered accepts the list in any order
+             * @enum {string}
+             */
+            compare: "exact" | "unordered";
+            examples: components["schemas"]["CodeExample"][];
+            cases: number;
+        };
+        /** @enum {string} */
+        CodeLanguage: "python" | "javascript" | "go";
+        CodeExample: {
+            /** @description The function's arguments */
+            args: unknown[];
+            /** @description The answer */
+            want: unknown;
+        };
+        CodeRequest: {
+            language: components["schemas"]["CodeLanguage"];
+            /** @description The learner's solution file (solution.py */
+            code: string;
+        };
+        /**
+         * @description error is OpsForge failing to judge (not recorded, not the learner's fault)
+         * @enum {string}
+         */
+        Verdict: "accepted" | "wrong_answer" | "runtime_error" | "compile_error" | "time_limit_exceeded" | "memory_limit_exceeded" | "error";
+        CaseResult: {
+            /** @description The case's number */
+            n: number;
+            passed: boolean;
+            args: unknown[];
+            want: unknown;
+            /** @description What the function returned (absent after an error) */
+            got?: unknown;
+            /** @description The exception */
+            error?: string;
+            /** Format: double */
+            ms?: number;
+        };
+        /** @description What judging code did. cases are every example for a run; for a submission only the first failing case (the hidden cases' arguments are not shown) and passed counts the cases before it. output is what the program printed itself (compiler errors included). */
+        ChallengeOutcome: {
+            verdict: components["schemas"]["Verdict"];
+            passed: number;
+            total: number;
+            cases: components["schemas"]["CaseResult"][];
+            output: string;
+            /** Format: double */
+            seconds: number;
+            error?: string;
+            language: components["schemas"]["CodeLanguage"];
+            /**
+             * Format: int64
+             * @description The recorded submission (submit only)
+             */
+            submission?: number;
+            xp: number;
+        };
+        Submission: {
+            /** Format: int64 */
+            id: number;
+            language: components["schemas"]["CodeLanguage"];
+            code: string;
+            verdict: components["schemas"]["Verdict"];
+            passed: number;
+            total: number;
+            /** Format: double */
+            seconds: number;
+            xp: number;
+            /** Format: date-time */
+            submitted_at: string;
+            result: components["schemas"]["ChallengeOutcome"];
+        };
+        SubmissionList: {
+            submissions: components["schemas"]["Submission"][];
+        };
+        Solution: {
+            /** @description The reference solution per language */
+            files: {
+                [key: string]: string;
+            };
         };
         LabView: {
             id: string;
@@ -1186,15 +1343,16 @@ export interface components {
         Operation: {
             id: string;
             /** @enum {string} */
-            kind: "lab.start" | "lab.check" | "lab.reset" | "lab.abandon";
-            /** @description The lab id */
+            kind: "lab.start" | "lab.check" | "lab.reset" | "lab.abandon" | "challenge.run" | "challenge.submit";
+            /** @description The lab id, or a challenge's <course>/<item> */
             subject: string;
             /**
              * @description done is finished (the result says how it went); failed could not finish (error)
              * @enum {string}
              */
             status: "running" | "done" | "failed";
-            result: components["schemas"]["LabOutcome"] | null;
+            /** @description A lab operation's LabOutcome, a challenge's ChallengeOutcome; null while running */
+            result: components["schemas"]["LabOutcome"] | components["schemas"]["ChallengeOutcome"] | null;
             error: string | null;
             /** Format: date-time */
             created_at: string;
@@ -1751,6 +1909,188 @@ export interface operations {
             401: components["responses"]["NoSession"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    runCode: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                course: string;
+                item: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CodeRequest"];
+            };
+        };
+        responses: {
+            /** @description Accepted; the operation judges the code (its result is a ChallengeOutcome). */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Operation"];
+                };
+            };
+            401: components["responses"]["NoSession"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description The item is not a coding challenge (/problems/not-a-code-challenge), the lab is busy (/problems/lab-busy), down (/problems/lab-down) or lacks the language's runtime (/problems/lab-unavailable). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description A language the challenge does not offer (/problems/bad-language) or code over 64 KiB (/problems/code-too-large). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description OpsForge is out of reach (/problems/labs-offline). */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    listSubmissions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                course: string;
+                item: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Newest first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SubmissionList"];
+                };
+            };
+            401: components["responses"]["NoSession"];
+            404: components["responses"]["NotFound"];
+            /** @description The item is not a coding challenge (/problems/not-a-code-challenge). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    submitCode: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                course: string;
+                item: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CodeRequest"];
+            };
+        };
+        responses: {
+            /** @description Accepted; the operation judges the code (its result is a ChallengeOutcome). */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Operation"];
+                };
+            };
+            401: components["responses"]["NoSession"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description The item is not a coding challenge (/problems/not-a-code-challenge), the lab is busy (/problems/lab-busy), down (/problems/lab-down) or lacks the language's runtime (/problems/lab-unavailable). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description A language the challenge does not offer (/problems/bad-language) or code over 64 KiB (/problems/code-too-large). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description OpsForge is out of reach (/problems/labs-offline). */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getSolution: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                course: string;
+                item: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The solution in each language. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Solution"];
+                };
+            };
+            401: components["responses"]["NoSession"];
+            404: components["responses"]["NotFound"];
+            /** @description The item is not a coding challenge (/problems/not-a-code-challenge), or no submission is accepted yet (/problems/solution-locked). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
         };
     };
     getNote: {

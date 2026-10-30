@@ -28,6 +28,23 @@ type Attempt struct {
 	Error       sql.NullString
 }
 
+type ChallengeSubmission struct {
+	ID          int64
+	UserID      int64
+	CourseID    string
+	ItemID      string
+	ContentHash string
+	Language    string
+	Code        string
+	Verdict     string
+	Passed      int64
+	Total       int64
+	Seconds     float64
+	Xp          int64
+	Result      json.RawMessage
+	SubmittedAt time.Time
+}
+
 type Content struct {
 	Kind        string
 	Key         string

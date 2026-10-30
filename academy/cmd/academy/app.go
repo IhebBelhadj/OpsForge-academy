@@ -12,6 +12,8 @@ import (
 
 	"github.com/IhebBelhadj/opsforge-academy/academy/internal/catalog"
 	catalogpg "github.com/IhebBelhadj/opsforge-academy/academy/internal/catalog/postgres"
+	"github.com/IhebBelhadj/opsforge-academy/academy/internal/challenge"
+	challengepg "github.com/IhebBelhadj/opsforge-academy/academy/internal/challenge/postgres"
 	"github.com/IhebBelhadj/opsforge-academy/academy/internal/compiler"
 	"github.com/IhebBelhadj/opsforge-academy/academy/internal/config"
 	"github.com/IhebBelhadj/opsforge-academy/academy/internal/contentimport"
@@ -298,6 +300,12 @@ func provideLabs(store *postgres.Store, courses *catalog.Service, opsforge *opsf
 	return labsession.NewService(labpg.NewRepo(store.DB), courses, opsforge.Sandboxes(), spaces, ops, events, clock)
 }
 
+// provideChallenges judges code on OpsForge's sandboxes, one per run or submission.
+func provideChallenges(store *postgres.Store, courses *catalog.Service, opsforge *opsforgeapi.Client,
+	ops *operations.Service, events *history.Service, clock platform.Clock) *challenge.Service {
+	return challenge.NewService(challengepg.NewRepo(store.DB), courses, opsforge.Sandboxes(), ops, events, clock)
+}
+
 func provideQuizzes(store *postgres.Store, courses *catalog.Service, events *history.Service,
 	clock platform.Clock) *quiz.Service {
 	return quiz.NewService(quizpg.NewRepo(store.DB), courses, events, platform.CryptoRandom{}, clock)
@@ -306,7 +314,7 @@ func provideQuizzes(store *postgres.Store, courses *catalog.Service, events *his
 // provideProgress reads the items the other modules complete (passed quiz attempts and labs) and subscribes to the
 // history (a completed course is noticed after the event that completed its last item).
 func provideProgress(store *postgres.Store, courses *catalog.Service, events *history.Service, clock platform.Clock,
-	quizzes *quiz.Service, labs *labsession.Service) *progress.Service {
+	quizzes *quiz.Service, labs *labsession.Service, challenges *challenge.Service) *progress.Service {
 	passedQuizzes := progress.SourceFunc(func(ctx context.Context, user int64) ([]progress.Completion, error) {
 		passed, err := quizzes.Passed(ctx, user)
 		out := make([]progress.Completion, len(passed))
@@ -324,8 +332,17 @@ func provideProgress(store *postgres.Store, courses *catalog.Service, events *hi
 		}
 		return out, err
 	})
+	accepted := progress.SourceFunc(func(ctx context.Context, user int64) ([]progress.Completion, error) {
+		subs, err := challenges.Accepted(ctx, user)
+		out := make([]progress.Completion, len(subs))
+		for i, s := range subs {
+			out[i] = progress.Completion{Type: catalog.ItemChallenge, Ref: s.Course + "/" + s.Item, Hash: s.Hash,
+				At: s.SubmittedAt}
+		}
+		return out, err
+	})
 	svc := progress.NewService(progresspg.NewRepo(store.DB), courses, events, clock,
-		progress.Sources{passedQuizzes, passedLabs})
+		progress.Sources{passedQuizzes, passedLabs, accepted})
 	events.Subscribe(svc.OnEvent)
 	return svc
 }
@@ -333,8 +350,8 @@ func provideProgress(store *postgres.Store, courses *catalog.Service, events *hi
 // provideRewards reads the history for the badge rules from the modules that record it (lab and quiz passes,
 // completed courses) and subscribes to the history (an event that may earn a badge evaluates the user's badges).
 func provideRewards(store *postgres.Store, courses *catalog.Service, events *history.Service, clock platform.Clock,
-	log *slog.Logger, labs *labsession.Service, quizzes *quiz.Service, learning *progress.Service,
-	ids *identity.Service) *rewards.Service {
+	log *slog.Logger, labs *labsession.Service, quizzes *quiz.Service, challenges *challenge.Service,
+	learning *progress.Service, ids *identity.Service) *rewards.Service {
 	sources := rewards.Sources{
 		Labs: func(ctx context.Context, user int64) ([]rewards.LabPass, error) {
 			passed, err := labs.Passed(ctx, user)
@@ -349,6 +366,14 @@ func provideRewards(store *postgres.Store, courses *catalog.Service, events *his
 			out := make([]rewards.QuizPass, len(passed))
 			for i, a := range passed {
 				out[i] = rewards.QuizPass{Course: a.Course, Item: a.Item, XP: a.XP}
+			}
+			return out, err
+		},
+		Challenges: func(ctx context.Context, user int64) ([]rewards.ChallengePass, error) {
+			subs, err := challenges.Accepted(ctx, user)
+			out := make([]rewards.ChallengePass, len(subs))
+			for i, s := range subs {
+				out[i] = rewards.ChallengePass{Course: s.Course, Item: s.Item, XP: s.XP}
 			}
 			return out, err
 		},
@@ -369,13 +394,13 @@ func provideLabState(opsforge *opsforgeapi.Client, events *history.Service, cloc
 
 func provideHandler(build platform.Build, checks []httpapi.ReadinessCheck, shells terminal.Shells,
 	ids *identity.Service, importer *importer, courses *catalog.Service, events *history.Service,
-	hub *platform.Hub, learning *progress.Service, quizzes *quiz.Service, labs *labsession.Service,
-	ops *operations.Service, spaces *workspace.Service, awards *rewards.Service, state *labstate.Service,
-	tutors *tutor.Service, log *slog.Logger) http.Handler {
+	hub *platform.Hub, learning *progress.Service, quizzes *quiz.Service, challenges *challenge.Service,
+	labs *labsession.Service, ops *operations.Service, spaces *workspace.Service, awards *rewards.Service,
+	state *labstate.Service, tutors *tutor.Service, log *slog.Logger) http.Handler {
 	return httpapi.NewHandler(httpapi.Deps{
 		Build: build, Readiness: checks, Web: web.FS(), Log: log, Terminals: shells, Identity: ids,
 		Importer: importer, Catalog: courses, History: events, Streams: hub,
-		Progress: learning, Quizzes: quizzes, Labs: labs, Operations: ops, Workspaces: spaces, Awards: awards,
+		Progress: learning, Quizzes: quizzes, Challenges: challenges, Labs: labs, Operations: ops, Workspaces: spaces, Awards: awards,
 		Lab: state, Tutor: tutors,
 	})
 }

@@ -243,6 +243,133 @@ paths:
         "401": { $ref: "#/components/responses/NoSession" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
+  /api/v1/courses/{course}/items/{item}/runs:
+    parameters:
+      - { name: course, in: path, required: true, schema: { type: string } }
+      - { name: item, in: path, required: true, schema: { type: string } }
+    post:
+      operationId: runCode
+      summary: Run code on a coding challenge's examples
+      description: >-
+        Calls the learner's function on the challenge's sample cases in a sandbox on OpsForge (a pod with no network,
+        the language's runtime and the challenge's time limit) and compares what it returned with each case's answer.
+        Runs in the background (202; the operation's result is a ChallengeOutcome). Nothing is recorded.
+      tags: [challenges]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CodeRequest" }
+      responses:
+        "202":
+          description: Accepted; the operation judges the code (its result is a ChallengeOutcome).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Operation" }
+        "401": { $ref: "#/components/responses/NoSession" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: >-
+            The item is not a coding challenge (/problems/not-a-code-challenge), the lab is busy (/problems/lab-busy),
+            down (/problems/lab-down) or lacks the language's runtime (/problems/lab-unavailable).
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "422":
+          description: A language the challenge does not offer (/problems/bad-language) or code over 64 KiB (/problems/code-too-large).
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "503":
+          description: OpsForge is out of reach (/problems/labs-offline).
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+  /api/v1/courses/{course}/items/{item}/submissions:
+    parameters:
+      - { name: course, in: path, required: true, schema: { type: string } }
+      - { name: item, in: path, required: true, schema: { type: string } }
+    post:
+      operationId: submitCode
+      summary: Submit code to a coding challenge
+      description: >-
+        Judges the learner's function on every case, hidden ones too, as runCode does, and records the submission
+        with its verdict (unless OpsForge could not judge it: verdict error). The first accepted submission earns the
+        challenge's XP and completes the item. Runs in the background (202; the result is a ChallengeOutcome).
+      tags: [challenges]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CodeRequest" }
+      responses:
+        "202":
+          description: Accepted; the operation judges the code (its result is a ChallengeOutcome).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Operation" }
+        "401": { $ref: "#/components/responses/NoSession" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: >-
+            The item is not a coding challenge (/problems/not-a-code-challenge), the lab is busy (/problems/lab-busy),
+            down (/problems/lab-down) or lacks the language's runtime (/problems/lab-unavailable).
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "422":
+          description: A language the challenge does not offer (/problems/bad-language) or code over 64 KiB (/problems/code-too-large).
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "503":
+          description: OpsForge is out of reach (/problems/labs-offline).
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+    get:
+      operationId: listSubmissions
+      summary: The learner's submissions to a coding challenge
+      tags: [challenges]
+      responses:
+        "200":
+          description: Newest first.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SubmissionList" }
+        "401": { $ref: "#/components/responses/NoSession" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: The item is not a coding challenge (/problems/not-a-code-challenge).
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+  /api/v1/courses/{course}/items/{item}/solution:
+    parameters:
+      - { name: course, in: path, required: true, schema: { type: string } }
+      - { name: item, in: path, required: true, schema: { type: string } }
+    get:
+      operationId: getSolution
+      summary: A coding challenge's reference solution
+      description: Per language, once the learner has an accepted submission.
+      tags: [challenges]
+      responses:
+        "200":
+          description: The solution in each language.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Solution" }
+        "401": { $ref: "#/components/responses/NoSession" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: >-
+            The item is not a coding challenge (/problems/not-a-code-challenge), or no submission is accepted yet
+            (/problems/solution-locked).
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
   /api/v1/courses/{course}/items/{item}/notes:
     parameters:
       - { name: course, in: path, required: true, schema: { type: string } }
@@ -1212,6 +1339,112 @@ components:
         time_limit_s: { type: integer }
         tests: { $ref: "#/components/schemas/Strings", description: The test cases' names }
         hints: { type: integer, description: How many hints there are }
+        code: { $ref: "#/components/schemas/CodeChallengeView" }
+    CodeChallengeView:
+      type: object
+      description: >-
+        A coding challenge (absent for a manifest one): the function to write (named per language: two_sum,
+        twoSum, TwoSum), its languages (starter has solution.py, solution.js, solution.go for those), the examples
+        (the sample cases, with their answers) and how many cases a submission is judged on.
+      required: [function, params, languages, compare, examples, cases]
+      additionalProperties: false
+      properties:
+        function: { type: string }
+        params: { $ref: "#/components/schemas/Strings" }
+        languages:
+          type: array
+          items: { $ref: "#/components/schemas/CodeLanguage" }
+        compare: { type: string, enum: [exact, unordered], description: unordered accepts the list in any order }
+        examples:
+          type: array
+          items: { $ref: "#/components/schemas/CodeExample" }
+        cases: { type: integer }
+    CodeLanguage:
+      type: string
+      enum: [python, javascript, go]
+    CodeExample:
+      type: object
+      required: [args, want]
+      additionalProperties: false
+      properties:
+        args: { type: array, items: {}, description: The function's arguments }
+        want: { description: The answer }
+    CodeRequest:
+      type: object
+      required: [language, code]
+      additionalProperties: false
+      properties:
+        language: { $ref: "#/components/schemas/CodeLanguage" }
+        code: { type: string, description: The learner's solution file (solution.py, solution.js or solution.go) }
+    Verdict:
+      type: string
+      enum: [accepted, wrong_answer, runtime_error, compile_error, time_limit_exceeded, memory_limit_exceeded, error]
+      description: error is OpsForge failing to judge (not recorded, not the learner's fault)
+    CaseResult:
+      type: object
+      required: [n, passed, args, want]
+      additionalProperties: false
+      properties:
+        n: { type: integer, description: The case's number, from 1 }
+        passed: { type: boolean }
+        args: { type: array, items: {} }
+        want: {}
+        got: { description: What the function returned (absent after an error) }
+        error: { type: string, description: The exception, or why the case never ran }
+        ms: { type: number, format: double }
+    ChallengeOutcome:
+      type: object
+      required: [verdict, passed, total, cases, output, seconds, language, xp]
+      additionalProperties: false
+      description: >-
+        What judging code did. cases are every example for a run; for a submission only the first failing case
+        (the hidden cases' arguments are not shown) and passed counts the cases before it. output is what the program
+        printed itself (compiler errors included).
+      properties:
+        verdict: { $ref: "#/components/schemas/Verdict" }
+        passed: { type: integer }
+        total: { type: integer }
+        cases:
+          type: array
+          items: { $ref: "#/components/schemas/CaseResult" }
+        output: { type: string }
+        seconds: { type: number, format: double }
+        error: { type: string }
+        language: { $ref: "#/components/schemas/CodeLanguage" }
+        submission: { type: integer, format: int64, description: The recorded submission (submit only) }
+        xp: { type: integer }
+    Submission:
+      type: object
+      required: [id, language, code, verdict, passed, total, seconds, xp, submitted_at, result]
+      additionalProperties: false
+      properties:
+        id: { type: integer, format: int64 }
+        language: { $ref: "#/components/schemas/CodeLanguage" }
+        code: { type: string }
+        verdict: { $ref: "#/components/schemas/Verdict" }
+        passed: { type: integer }
+        total: { type: integer }
+        seconds: { type: number, format: double }
+        xp: { type: integer }
+        submitted_at: { type: string, format: date-time }
+        result: { $ref: "#/components/schemas/ChallengeOutcome" }
+    SubmissionList:
+      type: object
+      required: [submissions]
+      additionalProperties: false
+      properties:
+        submissions:
+          type: array
+          items: { $ref: "#/components/schemas/Submission" }
+    Solution:
+      type: object
+      required: [files]
+      additionalProperties: false
+      properties:
+        files:
+          type: object
+          description: The reference solution per language
+          additionalProperties: { type: string }
     LabView:
       type: object
       required: [id, summary, xp, needs, requires, layout, briefing, debrief, concepts, cluster_changes, namespace,
@@ -1525,15 +1758,17 @@ components:
       additionalProperties: false
       properties:
         id: { type: string }
-        kind: { type: string, enum: [lab.start, lab.check, lab.reset, lab.abandon] }
-        subject: { type: string, description: The lab id }
+        kind: { type: string, enum: [lab.start, lab.check, lab.reset, lab.abandon, challenge.run, challenge.submit] }
+        subject: { type: string, description: "The lab id, or a challenge's <course>/<item>" }
         status:
           type: string
           enum: [running, done, failed]
           description: done is finished (the result says how it went); failed could not finish (error)
         result:
+          description: A lab operation's LabOutcome, a challenge's ChallengeOutcome; null while running
           oneOf:
             - { $ref: "#/components/schemas/LabOutcome" }
+            - { $ref: "#/components/schemas/ChallengeOutcome" }
             - { type: "null" }
         error: { type: [string, "null"] }
         created_at: { type: string, format: date-time }

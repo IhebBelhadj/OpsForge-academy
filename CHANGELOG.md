@@ -6,6 +6,13 @@ OpsForge range it supports (its API contract: `academy/contract/PINNED`). Histor
 
 ## Unreleased
 
+- **Coding challenges (2026-10-29):** LeetCode-style problems (`kind: code`): one function in Python, JavaScript or
+  Go, judged on sample and hidden cases in a pod on the lab through OpsForge's `program` step (contract minor 2,
+  OpsForge 1.2.0 or later: `MinMinor` raised). Run (examples) and Submit (every case, recorded, XP once, completes
+  the item); verdicts, the failing case, the program's output, the reference solution once accepted. Course
+  *Data structures and algorithms* with Two Sum, Valid Parentheses and Merge Intervals; every reference solution
+  passes in all three languages through the real harnesses (host interpreters). **Not run on the live lab yet.**
+
 - **Lab tutor (2026-10-27, spike):** a Tutor tab in the lab view talks with a coding agent the learner already has
   on this machine (Claude Code and Codex through Zed's ACP adapters, pinned and fetched by npx; Gemini CLI natively),
   over the Agent Client Protocol (`internal/tutor`, adapter `internal/tutor/acp` on `coder/acp-go-sdk` 0.13.5). The

@@ -257,6 +257,31 @@ func withHash(m map[string]any, what string) (map[string]any, error) {
 	return m, nil
 }
 
+// codeLanguages are a coding challenge's languages and their solution file, in the order they are offered.
+var codeLanguages = []struct{ name, file string }{
+	{"python", "solution.py"}, {"javascript", "solution.js"}, {"go", "solution.go"},
+}
+
+// codeChallengeEntry is a coding challenge's bundle entry: its languages are those its starter/ has a file for, and
+// it runs on K3s (OpsForge runs programs in pods).
+func codeChallengeEntry(course, id string, ch map[string]any, hash string) map[string]any {
+	starter, _ := ch["starter"].(map[string]any)
+	languages, files := []any{}, []any{}
+	for _, l := range codeLanguages {
+		if _, ok := starter[l.file]; ok {
+			languages = append(languages, l.name)
+			files = append(files, l.file)
+		}
+	}
+	return map[string]any{"course": course, "id": id, "kind": "code", "title": ch["title"],
+		"difficulty": ch["difficulty"], "minutes": ch["minutes"], "xp": get(ch, "xp", codeChallengeXP),
+		"needs": []any{"k3s"}, "statement": ch["statement"], "function": ch["function"], "params": ch["params"],
+		"compare": get(ch, "compare", "exact"), "samples": get(ch, "samples", int64(1)), "cases": ch["cases"],
+		"languages": languages, "files": files, "starter": starter, "solution": ch["solution"],
+		"time_limit_s": or(durationS(get(ch, "time_limit", nil)), codeTimeLimit), "tests": []any{},
+		"hints": get(ch, "hints", []any{}), "content_hash": hash}
+}
+
 // courseEntries are a course's entry and its lectures', quizzes' and challenges'.
 func courseEntries(c *course, position int, labItems map[string]map[string]any) (map[string]any, []any, []any,
 	[]any, error) {
@@ -302,6 +327,12 @@ func courseEntries(c *course, position int, labItems map[string]map[string]any) 
 		hash, err := contentHash(ch)
 		if err != nil {
 			return nil, nil, nil, nil, err
+		}
+		if ch["kind"] == "code" {
+			e := codeChallengeEntry(c.id, chid, ch, hash)
+			challenges = append(challenges, e)
+			byKind["challenge"][chid] = e
+			continue
 		}
 		var tests []any
 		for _, t := range ch["tests"].([]any) {

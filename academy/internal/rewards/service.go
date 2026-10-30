@@ -98,6 +98,11 @@ func (s *Service) history(ctx context.Context, user int64, courseLabs map[string
 	if h.Quizzes, err = s.sources.Quizzes(ctx, user); err != nil {
 		return History{}, fmt.Errorf("quiz passes: %w", err)
 	}
+	if s.sources.Challenges != nil {
+		if h.Challenges, err = s.sources.Challenges(ctx, user); err != nil {
+			return History{}, fmt.Errorf("accepted challenges: %w", err)
+		}
+	}
 	courses, err := s.sources.Courses(ctx, user)
 	if err != nil {
 		return History{}, fmt.Errorf("completed courses: %w", err)

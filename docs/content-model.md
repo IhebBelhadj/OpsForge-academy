@@ -137,6 +137,38 @@ hints: [ ... ]                   # same hint/XP rules as labs
   refusal, not counted).
 - Grader actions and probes follow the lab rule: they may change only the challenge namespace.
 
+### Coding challenges (`kind: code`)
+
+LeetCode's kind: the learner writes one function in Python, JavaScript or Go; the judge calls it on each case.
+
+```yaml
+kind: code
+title: Two Sum
+difficulty: easy
+minutes: 15
+xp: 50                           # default 50; the first accepted submission earns it
+statement: |
+  Markdown, with the examples.
+function: twoSum                 # camelCase: two_sum in Python, twoSum in JavaScript, TwoSum in Go
+params: [nums, target]
+compare: unordered               # exact (default) | unordered: a list answer in any order
+samples: 2                       # the first cases: shown, and what Run tries (default 1)
+time_limit: 10s                  # default 10 s, at most 60 s (OpsForge's program step)
+cases:                           # args: one per parameter; want: the answer (JSON values)
+  - { args: [[2, 7, 11, 15], 9], want: [0, 1] }
+hints: [ ... ]
+```
+
+`starter/` and `solution/` hold `solution.py`, `solution.js` and/or `solution.go` (the same languages in both; the
+languages offered are those). The compiler emits `kind`, `function`, `params`, `compare`, `samples`, `cases`,
+`languages`, `needs: [k3s]` and `tests: []`; the API's item view gives the examples (sample cases) and the number of
+cases, never the others. Judging (`internal/challenge`): a sandbox per Run or Submit (`requires.runtimes`, namespace,
+the learner's file + the language's judge from `harness/` + `tests.json` with the cases' arguments only), one action
+with OpsForge's `program` step, the sandbox deleted; Academy compares each returned value with the case's answer
+(numbers by value). Verdicts `accepted`, `wrong_answer`, `runtime_error`, `compile_error`, `time_limit_exceeded`,
+`memory_limit_exceeded`, `error` (OpsForge could not judge: not recorded). A submission shows only its first failing
+case. Submissions are in `challenge_submissions`; accepted ones complete the item (`challenge.accepted`).
+
 ## Labs
 
 Phase 10's format, plus the keys below. A lab attempt runs in one OpsForge **sandbox** (architecture.md "The

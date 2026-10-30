@@ -208,7 +208,22 @@
           }
         },
         "hints": { "$ref": "#/$defs/strings" },
-        "content_hash": { "$ref": "#/$defs/hash" }
+        "content_hash": { "$ref": "#/$defs/hash" },
+        "kind": { "description": "code: a coding challenge (the keys below; tests is empty)", "const": "code" },
+        "function": { "type": "string" },
+        "params": { "$ref": "#/$defs/strings" },
+        "compare": { "enum": ["exact", "unordered"] },
+        "samples": { "type": "integer", "minimum": 1 },
+        "languages": { "type": "array", "items": { "enum": ["python", "javascript", "go"] } },
+        "cases": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["args", "want"],
+            "additionalProperties": false,
+            "properties": { "args": { "type": "array" }, "want": true }
+          }
+        }
       }
     },
     "lab": {

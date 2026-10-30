@@ -30,8 +30,14 @@ func startLab(t *testing.T, w *world, b *browser, lab string) httpapi.LabStarted
 	return decode[httpapi.LabStarted](t, rec.Body.Bytes())
 }
 
-// finished reads an operation once the world's operations are done.
-func finished(t *testing.T, w *world, b *browser, id string) httpapi.Operation {
+// labOperation is a finished lab operation with its result read as a LabOutcome.
+type labOperation struct {
+	httpapi.Operation
+	Result httpapi.LabOutcome
+}
+
+// finished reads a lab operation once the world's operations are done.
+func finished(t *testing.T, w *world, b *browser, id string) labOperation {
 	t.Helper()
 	w.wait(t)
 	rec := get(t, b, "/api/v1/operations/"+id, opOp)
@@ -39,7 +45,11 @@ func finished(t *testing.T, w *world, b *browser, id string) httpapi.Operation {
 	if rec.Code != 200 || op.Status != "done" || op.Result == nil {
 		t.Fatalf("%d %s", rec.Code, rec.Body)
 	}
-	return op
+	out, err := op.Result.AsLabOutcome()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return labOperation{op, out}
 }
 
 func attemptPath(id int64, rest string) string { return fmt.Sprintf("/api/v1/attempts/%d%s", id, rest) }

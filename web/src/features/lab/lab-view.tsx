@@ -120,7 +120,7 @@ export function LabView({ item, number, next }: { item: Item; number: string; ne
     try {
       const op = await awaitOperation(await call());
       if (op.status === "failed") setError(op.error ?? "The lab operation could not finish.");
-      const out = op.result;
+      const out = op.result as LabOutcome | null; // a lab operation's result
       if (out) {
         setOutcome(out);
         if (out.error) setError(out.error);

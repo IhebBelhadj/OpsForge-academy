@@ -1,0 +1,51 @@
+kind: code
+title: Two Sum
+difficulty: easy
+minutes: 15
+xp: 50
+statement: |
+  Given a list of integers `nums` and an integer `target`, return the **indices** of the two numbers that add up
+  to `target`.
+
+  Each input has exactly one solution, and you may not use the same element twice. Return the two indices in any
+  order.
+
+  **Example 1**
+
+  ```
+  Input:  nums = [2, 7, 11, 15], target = 9
+  Output: [0, 1]
+  ```
+
+  Because `nums[0] + nums[1] == 9`.
+
+  **Example 2**
+
+  ```
+  Input:  nums = [3, 2, 4], target = 6
+  Output: [1, 2]
+  ```
+
+  **Constraints**
+
+  - `2 <= len(nums) <= 10^4`
+  - `-10^9 <= nums[i], target <= 10^9`
+  - Exactly one answer exists.
+
+  Can you do it in one pass, faster than trying every pair?
+function: twoSum
+params: [nums, target]
+compare: unordered
+samples: 2
+time_limit: 10s
+hints:
+  - For each number, the one you need is `target - number`. How do you find out at once whether you saw it before?
+  - Keep a map from each value seen so far to its index.
+cases:
+  - { args: [[2, 7, 11, 15], 9], want: [0, 1] }
+  - { args: [[3, 2, 4], 6], want: [1, 2] }
+  - { args: [[3, 3], 6], want: [0, 1] }
+  - { args: [[-1, -2, -3, -4, -5], -8], want: [2, 4] }
+  - { args: [[0, 4, 3, 0], 0], want: [0, 3] }
+  - { args: [[1000000000, -1000000000, 5, 7], 12], want: [2, 3] }
+  - { args: [[5, 75, 25], 100], want: [1, 2] }

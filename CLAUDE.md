@@ -187,6 +187,18 @@ the history re-imported, the six labs passed again on it. **Next:** M2 (the cour
   `renderRoute(path)` against MSW fixtures (`src/test/server.ts`, the demo course); `src/test/setup.ts` stubs what
   jsdom lacks (matchMedia, pointer capture, scrollIntoView). The e2e suite serves
   `academy/testdata/packs` (`--content`; the fake OpsForge finds every step valid). Phones (< 900 px): the course content is a drawer that closes on a choice.
+- Coding challenges (`internal/challenge`, `kind: code` in a challenge.yml, content-model.md): judged on OpsForge
+  (contract minor 2: `program` step, `requires.runtimes`, `runOutput.outputs`; `opsforgeapi.MinMinor` 2), a throwaway
+  sandbox per Run/Submit (`Service.start`: Create at once so refusals answer the request; Await, Act, Delete in the
+  operation). The judges in `harness/` (embedded; `main.go.tmpl` is not compiled with the package) print one
+  `challenge.Mark` line per case; the case answers never reach the pod: `Judge` compares (`Same`: numbers by value,
+  `unordered` lists sorted). `TestTheJudges`/`TestThePacksCodingChallenges` run the harnesses and every pack
+  solution with the host's `python3`/`node`/`go` (skipped when missing): run them after touching a harness or a
+  problem. Submissions: `challenge_submissions` (migration 00002); XP once (`rewards.ChallengePass`), completion via
+  progress's challenge source. API: `/courses/{c}/items/{i}/{runs,submissions,solution}`; `Operation.result` is a
+  union (LabOutcome | ChallengeOutcome: `AsLabOutcome` in Go, a cast in the lab view). Web:
+  `features/challenge/code-challenge-view.tsx` (Monaco `EditorSurface` per language file, drafts in localStorage);
+  manifest challenges still run on mock data. The fake OpsForge answers actions through `Fake.Action`.
 - Academy learner modules (M1): every domain event goes through `history.Service.Publish` (events table, then
   `platform.Hub` → SSE `history` with the id for Last-Event-ID replay, then handlers); kinds keep Phase 10's dotted
   names. Completion is read, not derived from events: progress takes a `progress.Source` per module (cmd/academy

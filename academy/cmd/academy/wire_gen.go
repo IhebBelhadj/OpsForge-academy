@@ -41,8 +41,9 @@ func initApp(ctx context.Context, cfg config.Config, build platform.Build) (*App
 	operationsService := provideOperations(store, hub, systemClock, logger)
 	labsessionService := provideLabs(store, catalogService, client, workspaceService, operationsService, historyService, systemClock)
 	quizService := provideQuizzes(store, catalogService, historyService, systemClock)
-	progressService := provideProgress(store, catalogService, historyService, systemClock, quizService, labsessionService)
-	rewardsService := provideRewards(store, catalogService, historyService, systemClock, logger, labsessionService, quizService, progressService, identityService)
+	challengeService := provideChallenges(store, catalogService, client, operationsService, historyService, systemClock)
+	progressService := provideProgress(store, catalogService, historyService, systemClock, quizService, labsessionService, challengeService)
+	rewardsService := provideRewards(store, catalogService, historyService, systemClock, logger, labsessionService, quizService, challengeService, progressService, identityService)
 	mainImporter := provideRewardingImporter(contentimportService, rewardsService, logger)
 	labstateService := provideLabState(client, historyService, systemClock)
 	tutorService, cleanup4, err := provideTutor(catalogService, labsessionService, labstateService, service, hub, systemClock, logger)
@@ -52,7 +53,7 @@ func initApp(ctx context.Context, cfg config.Config, build platform.Build) (*App
 		cleanup()
 		return nil, nil, err
 	}
-	handler := provideHandler(build, v, shells, identityService, mainImporter, catalogService, historyService, hub, progressService, quizService, labsessionService, operationsService, workspaceService, rewardsService, labstateService, tutorService, logger)
+	handler := provideHandler(build, v, shells, identityService, mainImporter, catalogService, historyService, hub, progressService, quizService, challengeService, labsessionService, operationsService, workspaceService, rewardsService, labstateService, tutorService, logger)
 	legacyService := provideLegacy(store)
 	app := newApp(cfg, logger, handler, service, mainImporter, hub, operationsService, labsessionService, identityService, legacyService, progressService, rewardsService, tutorService)
 	return app, func() {

@@ -30,9 +30,10 @@ const Contract = 1
 
 // MinMinor is the oldest minor version of the contract this platform works with; MinRelease the OpsForge release
 // that introduced it (named when OpsForge is too old). Raise both when the platform starts using an addition.
+// Minor 2: program steps and runtimes (coding challenges).
 const (
-	MinMinor   = 0
-	MinRelease = "1.0.0"
+	MinMinor   = 2
+	MinRelease = "1.2.0"
 )
 
 // Version is what `GET /v1/version` reports.

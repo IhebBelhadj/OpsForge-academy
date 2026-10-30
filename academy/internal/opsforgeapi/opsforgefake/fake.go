@@ -38,7 +38,10 @@ type Fake struct {
 	// failed job
 	Setup func(in json.RawMessage) (string, error)
 	Probe func(in json.RawMessage) (any, error) // the probeOutput document, or a failed job
-	Files *memstore.Store
+	// Action answers an action (its actionInput) in sandbox, whose workspace is in Files: the runOutput document,
+	// or a failed job (nil: every step ran, nothing measured)
+	Action func(sandbox string, in json.RawMessage) (any, error)
+	Files  *memstore.Store
 	// Offline drops every connection unanswered: OpsForge out of reach
 	Offline atomic.Bool
 
@@ -81,7 +84,7 @@ func (j *job) sandbox() any {
 
 // New returns an empty lab answering for token.
 func New(token string) *Fake {
-	return &Fake{Token: token, Version: "1.0.0-fake", Files: memstore.New(), jobs: map[string]*job{},
+	return &Fake{Token: token, Version: "1.2.0-fake", Minor: 2, Files: memstore.New(), jobs: map[string]*job{},
 		sandboxes: map[string]*sandbox{}}
 }
 
@@ -334,8 +337,14 @@ func (f *Fake) inSandbox(w http.ResponseWriter, r *http.Request) {
 			})
 		}
 	case tail == "actions" && r.Method == http.MethodPost:
+		in, _ := io.ReadAll(r.Body)
 		if ready() {
-			f.startJob(w, "action", id, func() (any, error) { return runOutput(""), nil })
+			f.startJob(w, "action", id, func() (any, error) {
+				if f.Action != nil {
+					return f.Action(id, in)
+				}
+				return runOutput(""), nil
+			})
 		}
 	case tail == "terminal" && r.Method == http.MethodGet:
 		f.terminal(w, r, id)

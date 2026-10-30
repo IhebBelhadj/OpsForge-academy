@@ -3,9 +3,11 @@ package httpapi_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -14,6 +16,8 @@ import (
 
 	"github.com/IhebBelhadj/opsforge-academy/academy/internal/catalog"
 	catalogpg "github.com/IhebBelhadj/opsforge-academy/academy/internal/catalog/postgres"
+	"github.com/IhebBelhadj/opsforge-academy/academy/internal/challenge"
+	challengepg "github.com/IhebBelhadj/opsforge-academy/academy/internal/challenge/postgres"
 	"github.com/IhebBelhadj/opsforge-academy/academy/internal/contentimport"
 	"github.com/IhebBelhadj/opsforge-academy/academy/internal/history"
 	historypg "github.com/IhebBelhadj/opsforge-academy/academy/internal/history/postgres"
@@ -50,6 +54,7 @@ type world struct {
 	catalog  *catalog.Service
 	progress *progress.Service
 	quizzes  *quiz.Service
+	code     *challenge.Service
 	ops      *operations.Service
 	spaces   *workspace.Service
 	labs     *labsession.Service
@@ -122,6 +127,18 @@ func (inOrder) Perm(n int) []int {
 
 func newWorld(t *testing.T) *world {
 	t.Helper()
+	return buildWorld(t, func(_ *testing.T, data []byte) []byte { return data })
+}
+
+// newCodeWorld is the world with sumChallenge in its catalogue.
+func newCodeWorld(t *testing.T) *world {
+	t.Helper()
+	return buildWorld(t, withCodeChallenge)
+}
+
+// buildWorld makes the world on the golden bundle as content edits it.
+func buildWorld(t *testing.T, content func(*testing.T, []byte) []byte) *world {
+	t.Helper()
 	store, err := postgres.Open(context.Background(), pgtest.URL(t), platform.SystemClock{})
 	if err != nil {
 		t.Fatal(err)
@@ -133,7 +150,7 @@ func newWorld(t *testing.T) *world {
 	if err != nil {
 		t.Fatal(err)
 	}
-	entries, err := contentimport.Entries(data)
+	entries, err := contentimport.Entries(content(t, data))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -165,6 +182,9 @@ func newWorld(t *testing.T) *world {
 	w.lab = &scriptedLab{}
 	w.labs = labsession.NewService(labpg.NewRepo(store.DB), w.catalog, w.client.Sandboxes(), w.spaces, w.ops,
 		w.history, clock)
+	w.code = challenge.NewService(challengepg.NewRepo(store.DB), w.catalog, w.client.Sandboxes(), w.ops, w.history,
+		clock)
+	w.opsforge.Action = w.judge
 	t.Cleanup(func() { _ = w.ops.Wait(context.Background()) })
 	labs := progress.SourceFunc(func(ctx context.Context, user int64) ([]progress.Completion, error) {
 		passed, err := w.labs.Passed(ctx, user)
@@ -184,6 +204,68 @@ func newWorld(t *testing.T) *world {
 	w.state = labstate.NewService(w.lab, clock)
 	w.history.Subscribe(w.state.OnEvent)
 	return w
+}
+
+// sumChallenge is a coding challenge (the golden pack has none) added to k8s-intro's section: add(a, b), two cases,
+// one of them a sample.
+const sumChallenge = `{"course":"k8s-intro","id":"sum","kind":"code","title":"Sum","difficulty":"easy","minutes":5,
+"xp":30,"needs":["k3s"],"statement":"Add.","function":"add","params":["a","b"],"compare":"exact","samples":1,
+"cases":[{"args":[1,2],"want":3},{"args":[20,22],"want":42}],"languages":["python","go"],
+"files":["solution.py","solution.go"],"starter":{"solution.py":"def add(a, b):\n    pass\n","solution.go":"package main\n"},
+"solution":{"solution.py":"def add(a, b):\n    return a + b\n","solution.go":"package main\n\nfunc Add(a, b int) int { return a + b }\n"},
+"time_limit_s":10,"tests":[],"hints":[],"content_hash":"5u4c0de0000000aa"}`
+
+// withCodeChallenge is the golden bundle with sumChallenge in its first course.
+func withCodeChallenge(t *testing.T, data []byte) []byte {
+	t.Helper()
+	var b map[string]any
+	if err := json.Unmarshal(data, &b); err != nil {
+		t.Fatal(err)
+	}
+	var ch map[string]any
+	if err := json.Unmarshal([]byte(sumChallenge), &ch); err != nil {
+		t.Fatal(err)
+	}
+	pack := b["packs"].([]any)[0].(map[string]any)
+	pack["challenges"] = append(pack["challenges"].([]any), ch)
+	section := pack["courses"].([]any)[0].(map[string]any)["sections"].([]any)[0].(map[string]any)
+	section["items"] = append(section["items"].([]any), map[string]any{"id": "sum", "type": "challenge", "ref": "sum",
+		"title": "Sum", "minutes": 5, "content_hash": ch["content_hash"]})
+	out, err := json.Marshal(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+// judge is the fake OpsForge's program step for sumChallenge: it answers every case of tests.json with the sum of
+// its arguments, or 0 when the solution says "wrong", and fails the step when it says "crash".
+func (w *world) judge(sandbox string, _ json.RawMessage) (any, error) {
+	ctx := context.Background()
+	tests, err := w.opsforge.Files.Read(ctx, sandbox, "tests.json")
+	if err != nil {
+		return nil, err
+	}
+	code, _ := w.opsforge.Files.Read(ctx, sandbox, "solution.py")
+	if strings.Contains(string(code), "crash") {
+		return map[string]any{"metrics": map[string]float64{}, "outputs": map[string]string{}, "log": []string{},
+			"error": "program: the pod did not start in 120s"}, nil
+	}
+	var doc struct{ Cases []struct{ Args []int } }
+	if err := json.Unmarshal(tests, &doc); err != nil {
+		return nil, err
+	}
+	var out strings.Builder
+	out.WriteString("print from the program\n")
+	for i, c := range doc.Cases {
+		got := c.Args[0] + c.Args[1]
+		if strings.Contains(string(code), "wrong") {
+			got = 0
+		}
+		fmt.Fprintf(&out, "\n%s{\"i\":%d,\"got\":%d,\"ms\":0.5}\n", challenge.Mark, i, got)
+	}
+	return map[string]any{"metrics": map[string]float64{"judge.exit": 0, "judge.seconds": 0.3, "judge.timed_out": 0,
+		"judge.oom": 0}, "outputs": map[string]string{"judge": out.String()}, "log": []string{}, "error": nil}, nil
 }
 
 // rewardSources reads the history for the rules from the modules, as cmd/academy adapts them.
@@ -219,6 +301,7 @@ func (w *world) deps(d *httpapi.Deps) {
 	d.Catalog = w.catalog
 	d.Progress = w.progress
 	d.Quizzes = w.quizzes
+	d.Challenges = w.code
 	d.Labs = w.labs
 	d.Operations = w.ops
 	d.Workspaces = w.spaces

@@ -27,6 +27,8 @@ type Sources struct {
 	Labs func(ctx context.Context, user int64) ([]LabPass, error)
 	// Quizzes are user's passed quiz attempts.
 	Quizzes func(ctx context.Context, user int64) ([]QuizPass, error)
+	// Challenges are user's accepted challenge submissions (nil: none).
+	Challenges func(ctx context.Context, user int64) ([]ChallengePass, error)
 	// Courses are the courses user has completed.
 	Courses func(ctx context.Context, user int64) ([]string, error)
 	// Users are every user (a rule added by an import is evaluated for each).

@@ -2,7 +2,6 @@ package httpapi
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
@@ -246,8 +245,8 @@ func operation(op operations.Operation) (Operation, error) {
 	out := Operation{Id: op.ID, Kind: OperationKind(op.Kind), Subject: op.Subject, Status: OperationStatus(op.Status),
 		Error: op.Error, CreatedAt: op.CreatedAt, FinishedAt: op.FinishedAt}
 	if op.Result != nil {
-		var r LabOutcome
-		if err := json.Unmarshal(op.Result, &r); err != nil {
+		var r Operation_Result
+		if err := r.UnmarshalJSON(op.Result); err != nil {
 			return out, err
 		}
 		out.Result = &r

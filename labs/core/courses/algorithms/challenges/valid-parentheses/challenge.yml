@@ -1,0 +1,56 @@
+kind: code
+title: Valid Parentheses
+difficulty: easy
+minutes: 15
+xp: 50
+statement: |
+  Given a string `s` made of the characters `(`, `)`, `[`, `]`, `{` and `}`, return whether it is **valid**:
+
+  - every opening bracket is closed by the same kind of bracket,
+  - brackets are closed in the right order (the last one opened is closed first),
+  - every closing bracket has an opening one before it.
+
+  **Example 1**
+
+  ```
+  Input:  s = "()[]{}"
+  Output: true
+  ```
+
+  **Example 2**
+
+  ```
+  Input:  s = "(]"
+  Output: false
+  ```
+
+  **Example 3**
+
+  ```
+  Input:  s = "([{}])"
+  Output: true
+  ```
+
+  **Constraints**
+
+  - `0 <= len(s) <= 10^4`
+  - `s` holds only `()[]{}`.
+function: isValid
+params: [s]
+samples: 3
+time_limit: 10s
+hints:
+  - >-
+    The bracket to close next is always the most recent one still open. Which data structure gives you the most
+    recent item first?
+  - Push each opening bracket on a stack; on a closing one, the top of the stack must be its partner.
+cases:
+  - { args: ["()[]{}"], want: true }
+  - { args: ["(]"], want: false }
+  - { args: ["([{}])"], want: true }
+  - { args: [""], want: true }
+  - { args: ["(("], want: false }
+  - { args: ["))"], want: false }
+  - { args: ["([)]"], want: false }
+  - { args: ["{[]}()"], want: true }
+  - { args: ["]"], want: false }

@@ -83,25 +83,28 @@ type Node struct {
 
 // Requires is what a sandbox needs from the running lab: the course's layout and needs; Faults when its setup
 // breaks links (deleting it heals the lab), ClusterChanges when it changes the cluster outside its namespace. Either
-// of those makes it run alone.
+// of those makes it run alone. Runtimes are the program runtimes it runs code with (contract minor 2).
 type Requires struct {
 	Layout         *string  `json:"layout,omitempty"`
 	Needs          []string `json:"needs,omitempty"`
 	Faults         bool     `json:"faults,omitempty"`
 	ClusterChanges bool     `json:"cluster_changes,omitempty"`
+	Runtimes       []string `json:"runtimes,omitempty"`
 }
 
 // SandboxRequest is one attempt's sandbox (sandboxInput): Kind "lab" or "challenge", a Label for the lab's owner,
 // a Namespace (sb-<id>, `${ns}`) when asked, the workspace's first Files (path → text) and the steps OpsForge runs
 // to set it up and, when it deletes it, to tear it down. Steps are scenario steps as the bundle holds them.
+// ExpiresAfter is how long OpsForge keeps it without a call (seconds; 0: OpsForge's default, a day).
 type SandboxRequest struct {
-	Kind      string            `json:"kind"`
-	Label     string            `json:"label"`
-	Requires  Requires          `json:"requires"`
-	Namespace bool              `json:"namespace,omitempty"`
-	Files     map[string]string `json:"files,omitempty"`
-	Setup     []json.RawMessage `json:"setup,omitempty"`
-	Teardown  []json.RawMessage `json:"teardown,omitempty"`
+	Kind         string            `json:"kind"`
+	Label        string            `json:"label"`
+	Requires     Requires          `json:"requires"`
+	Namespace    bool              `json:"namespace,omitempty"`
+	Files        map[string]string `json:"files,omitempty"`
+	Setup        []json.RawMessage `json:"setup,omitempty"`
+	Teardown     []json.RawMessage `json:"teardown,omitempty"`
+	ExpiresAfter int               `json:"expires_after,omitempty"`
 }
 
 // The statuses of a sandbox that lab work ends with.
@@ -128,9 +131,11 @@ type Pending struct {
 	Job     string
 }
 
-// RunResult is what the steps measured. Error says why the run stopped early ("" when every step ran).
+// RunResult is what the steps measured. Error says why the run stopped early ("" when every step ran). Outputs
+// are the named program steps' outputs (contract minor 2; actions only).
 type RunResult struct {
 	Metrics map[string]float64 `json:"metrics"`
+	Outputs map[string]string  `json:"outputs,omitempty"`
 	Log     []string           `json:"log"`
 	Error   string             `json:"error"`
 }
